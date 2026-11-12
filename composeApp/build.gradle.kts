@@ -146,7 +146,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "Chofo"
-            packageVersion = "1.0.0"
+            packageVersion = "0.1.0"
         }
     }
 }

@@ -8,6 +8,8 @@ actual object Torrents {
         magnet: String,
         fileName: String?,
         fileIndex: Int?,
+        season: Int?,
+        episode: Int?,
         onProgress: (TorrentProgress) -> Unit,
     ): TorrentStream =
         throw UnsupportedOperationException("Magnet links can't be played on this platform.")

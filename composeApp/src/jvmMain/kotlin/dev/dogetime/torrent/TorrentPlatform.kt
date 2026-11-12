@@ -5,5 +5,8 @@ import java.io.File
 /** Where torrents are downloaded while they're watched. Cleared each time the engine starts. */
 internal expect fun torrentDataDir(): File
 
+/** Where completed and in-progress offline downloads are saved. */
+internal expect fun torrentDownloadsDir(): File
+
 /** Makes libtorrent4j's native library loadable. Called once, before the engine starts. */
 internal expect fun prepareTorrentLibrary()

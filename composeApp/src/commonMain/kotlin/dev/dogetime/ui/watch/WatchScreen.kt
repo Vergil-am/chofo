@@ -5,18 +5,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,7 +44,9 @@ import com.multiplatform.webview.web.rememberWebViewNavigator
 import com.multiplatform.webview.web.rememberWebViewState
 import dev.dogetime.core.CapturedStream
 import dev.dogetime.core.ExternalPlayer
+import dev.dogetime.core.TorrentDownloadManager
 import dev.dogetime.core.Torrents
+import dev.dogetime.core.WebEngineGate
 import dev.dogetime.data.KitsuMappingRepository
 import dev.dogetime.data.OpenSubtitlesApi
 import dev.dogetime.data.StremioSubtitlesApi
@@ -53,11 +55,14 @@ import dev.dogetime.data.TorrentProvider
 import dev.dogetime.data.TorrentioApi
 import dev.dogetime.data.WatchHistoryRepository
 import dev.dogetime.data.YtsSubsApi
-import dev.dogetime.core.WebEngineGate
+import dev.dogetime.domain.DownloadItem
 import dev.dogetime.domain.MediaItem
+import dev.dogetime.domain.MediaType
 import dev.dogetime.domain.VideoSource
 import dev.dogetime.domain.WatchTarget
+import dev.dogetime.domain.extractInfoHash
 import dev.dogetime.ui.player.VideoPlayerScreen
+import kotlin.time.Clock
 import kotlinx.coroutines.delay
 
 /** How long the auto-play script gets to start the video before the page is shown. */
@@ -80,6 +85,7 @@ fun WatchScreen(
     stremioSubtitles: StremioSubtitlesApi? = null,
     kitsuMapping: KitsuMappingRepository? = null,
     watchHistory: WatchHistoryRepository? = null,
+    downloadManager: TorrentDownloadManager? = null,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     backdropUrl: String? = null,
@@ -89,6 +95,15 @@ fun WatchScreen(
     var browsingTorrents by remember(target) { mutableStateOf(false) }
     var torrentProvider by remember(target) { mutableStateOf(TorrentProvider.Torrentio) }
     var torrent by remember(target) { mutableStateOf<TorrentPick?>(null) }
+    var downloadNotice by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(downloadNotice) {
+        if (downloadNotice != null) {
+            delay(MESSAGE_DURATION_MS)
+            downloadNotice = null
+        }
+    }
+
     val pickedTorrent = torrent
     if (pickedTorrent != null) {
         key(pickedTorrent) {
@@ -113,17 +128,61 @@ fun WatchScreen(
         return
     }
     if (browsingTorrents) {
-        TorrentPicker(
-            target = target,
-            torrentio = torrentio,
-            title = title,
-            backdropUrl = backdropUrl,
-            onBack = onBack,
-            onChangeSource = { browsingTorrents = false },
-            onPick = { torrent = TorrentPick(it.magnet, it.fileName, it.fileIndex) },
-            modifier = modifier,
-            initialProvider = torrentProvider,
-        )
+        val epTarget = target as? WatchTarget.Episode
+        Box(modifier = Modifier.fillMaxSize()) {
+            TorrentPicker(
+                target = target,
+                torrentio = torrentio,
+                title = title,
+                backdropUrl = backdropUrl,
+                onBack = onBack,
+                onChangeSource = { browsingTorrents = false },
+                onPick = { torrent = TorrentPick(it.magnet, it.fileName, it.fileIndex, epTarget?.season, epTarget?.episode) },
+                onDownload = if (downloadManager != null && downloadManager.isSupported) {
+                    { option, selectedSubtitle ->
+                        val hash = extractInfoHash(option.magnet)
+                        val itemId = if (epTarget != null) {
+                            "${hash}_s${epTarget.season}e${epTarget.episode}_${option.fileIndex ?: option.fileName?.hashCode() ?: 0}"
+                        } else {
+                            "${hash}_movie"
+                        }
+                        val item = DownloadItem(
+                            id = itemId,
+                            title = title,
+                            mediaType = when (target) {
+                                is WatchTarget.Movie -> MediaType.Movie
+                                is WatchTarget.Episode -> MediaType.Tv
+                            },
+                            mediaId = when (target) {
+                                is WatchTarget.Movie -> target.id
+                                is WatchTarget.Episode -> target.showId
+                            },
+                            season = epTarget?.season,
+                            episode = epTarget?.episode,
+                            posterUrl = mediaItem?.posterUrl,
+                            backdropUrl = backdropUrl,
+                            magnet = option.magnet,
+                            infoHash = hash,
+                            fileName = option.fileName,
+                            fileIndex = option.fileIndex,
+                            quality = option.quality,
+                            createdAt = Clock.System.now().toEpochMilliseconds(),
+                        )
+                        downloadManager.startDownload(item, selectedSubtitle)
+                        val subText = if (selectedSubtitle != null) " with ${selectedSubtitle.language} subtitles" else ""
+                        downloadNotice = "Download queued: $title$subText"
+                    }
+                } else null,
+                openSubtitles = openSubtitles,
+                subdl = subdl,
+                stremioSubtitles = stremioSubtitles,
+                modifier = modifier,
+                initialProvider = torrentProvider,
+            )
+            downloadNotice?.let {
+                MessageChip(it, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
+            }
+        }
         return
     }
     val chosen = source

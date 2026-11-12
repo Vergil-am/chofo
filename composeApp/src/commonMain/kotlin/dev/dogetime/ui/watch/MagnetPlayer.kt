@@ -42,7 +42,13 @@ import kotlinx.coroutines.delay
 private const val MESSAGE_DURATION_MS = 4_000L
 
 /** A torrent to play: its magnet link, and which of its files to play (see [Torrents.open]). */
-internal data class TorrentPick(val magnet: String, val fileName: String?, val fileIndex: Int?)
+internal data class TorrentPick(
+    val magnet: String,
+    val fileName: String?,
+    val fileIndex: Int?,
+    val season: Int? = null,
+    val episode: Int? = null,
+)
 
 /**
  * Plays [pick]: the torrent's video file is downloaded in order while it plays, and streamed to
@@ -75,7 +81,13 @@ internal fun MagnetPlayer(
         error = null
         progress = TorrentProgress()
         torrent = try {
-            Torrents.open(pick.magnet, pick.fileName, pick.fileIndex) { progress = it }
+            Torrents.open(
+                magnet = pick.magnet,
+                fileName = pick.fileName,
+                fileIndex = pick.fileIndex,
+                season = pick.season,
+                episode = pick.episode,
+            ) { progress = it }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

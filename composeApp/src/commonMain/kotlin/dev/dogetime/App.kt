@@ -57,6 +57,7 @@ import dev.chrisbanes.haze.glass.GlassStyle
 import dev.chrisbanes.haze.glass.hazeGlass
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import dev.dogetime.core.CapturedStream
 import dev.dogetime.core.PlatformBackHandler
 import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
@@ -70,8 +71,10 @@ import dev.dogetime.ui.browse.BrowseViewModel
 import dev.dogetime.ui.components.LocalNavAnimatedVisibilityScope
 import dev.dogetime.ui.components.LocalSharedTransitionScope
 import dev.dogetime.ui.details.DetailsScreen
+import dev.dogetime.ui.downloads.DownloadsScreen
 import dev.dogetime.ui.home.HomeScreen
 import dev.dogetime.ui.home.HomeViewModel
+import dev.dogetime.ui.player.VideoPlayerScreen
 import dev.dogetime.ui.search.SearchScreen
 import dev.dogetime.ui.search.SearchViewModel
 import dev.dogetime.ui.settings.SettingsScreen
@@ -132,6 +135,17 @@ private val SearchIcon = lineIcon("Search") {
     lineTo(20f, 20f)
 }
 
+private val DownloadsIcon = lineIcon("Downloads") {
+    // Tray with downward arrow
+    moveTo(12f, 4f)
+    lineTo(12f, 15f)
+    moveTo(8f, 11f)
+    lineTo(12f, 15f)
+    lineTo(16f, 11f)
+    moveTo(4f, 19f)
+    horizontalLineTo(20f)
+}
+
 private val SettingsIcon = lineIcon("Settings") {
     // Sliders / settings icon
     moveTo(4f, 6f)
@@ -154,6 +168,7 @@ private val tabs = listOf(
     Tab(Destination.Home, "Home", HomeIcon),
     Tab(Destination.Browse, "Browse", BrowseIcon),
     Tab(Destination.Search, "Search", SearchIcon),
+    Tab(Destination.Downloads, "Downloads", DownloadsIcon),
     Tab(Destination.Settings, "Settings", SettingsIcon),
 )
 
@@ -211,7 +226,7 @@ fun App() {
         }
 
         val current = navigator.current
-        val showTabs = current !is Destination.Details && current !is Destination.Watch
+        val showTabs = current !is Destination.Details && current !is Destination.Watch && current !is Destination.OfflineWatch
         val hazeState = rememberHazeState()
 
         BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -221,11 +236,11 @@ fun App() {
             Scaffold { innerPadding ->
                 val bottomInset = if (isWide || !showTabs) 0.dp else innerPadding.calculateBottomPadding() + NavBarHeight + NavBarMargin * 2
                 fun screenModifier(dest: Destination): Modifier = when {
-                    dest !is Destination.Details && dest !is Destination.Watch -> Modifier
+                    dest !is Destination.Details && dest !is Destination.Watch && dest !is Destination.OfflineWatch -> Modifier
                         .padding(top = innerPadding.calculateTopPadding())
                         .padding(start = startInset)
                     dest is Destination.Details -> Modifier.padding(bottom = innerPadding.calculateBottomPadding())
-                    dest is Destination.Watch -> Modifier
+                    dest is Destination.Watch || dest is Destination.OfflineWatch -> Modifier
                     else -> Modifier.padding(innerPadding)
                 }
                 val openDetails = { item: MediaItem ->
@@ -272,9 +287,18 @@ fun App() {
                                             modifier = destModifier,
                                             bottomInset = bottomInset,
                                         )
+                                        Destination.Downloads -> DownloadsScreen(
+                                            downloadManager = container.downloadManager,
+                                            onPlayDownload = { item ->
+                                                navigator.open(Destination.OfflineWatch(item))
+                                            },
+                                            modifier = destModifier,
+                                            bottomInset = bottomInset,
+                                        )
                                         Destination.Settings -> SettingsScreen(
                                             currentTheme = currentTheme,
                                             onThemeSelect = { currentTheme = it },
+                                            updateChecker = container.updateChecker,
                                             modifier = destModifier,
                                             bottomInset = bottomInset,
                                         )
@@ -302,11 +326,28 @@ fun App() {
                                             stremioSubtitles = container.stremioSubtitles,
                                             kitsuMapping = container.kitsuMapping,
                                             watchHistory = container.watchHistory,
+                                            downloadManager = container.downloadManager,
                                             backdropUrl = targetDestination.backdropUrl,
                                             mediaItem = targetDestination.mediaItem,
                                             onBack = { navigator.back() },
                                             modifier = destModifier,
                                         )
+                                        is Destination.OfflineWatch -> {
+                                            val playItem = container.downloadManager.resolveOfflinePlayback(targetDestination.item)
+                                            val localStream = CapturedStream(
+                                                url = playItem.videoFilePath ?: "",
+                                                headers = emptyMap(),
+                                            )
+                                            VideoPlayerScreen(
+                                                stream = localStream,
+                                                title = playItem.title,
+                                                onBack = { navigator.back() },
+                                                onOpenExternal = null,
+                                                initialSubtitlePath = playItem.subtitleFilePath,
+                                                initialSubtitleLanguage = playItem.subtitleLanguage,
+                                                modifier = destModifier,
+                                            )
+                                        }
                                     }
                                 }
                             }

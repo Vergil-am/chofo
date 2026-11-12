@@ -36,3 +36,32 @@ actual fun extractAndSaveSubtitle(bytes: ByteArray, filename: String): String? {
         return null
     }
 }
+
+actual fun extractAndSaveSubtitleTo(bytes: ByteArray, filename: String, destinationPath: String): String? {
+    try {
+        val dest = File(destinationPath)
+        dest.parentFile?.mkdirs()
+        if (bytes.size >= 4 && bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte()) {
+            ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    val entryName = entry.name
+                    if (!entry.isDirectory && (
+                            entryName.endsWith(".srt", ignoreCase = true) ||
+                            entryName.endsWith(".vtt", ignoreCase = true) ||
+                            entryName.endsWith(".ass", ignoreCase = true) ||
+                            entryName.endsWith(".sub", ignoreCase = true)
+                        )) {
+                        dest.outputStream().use { fos -> zis.copyTo(fos) }
+                        return dest.absolutePath
+                    }
+                    entry = zis.nextEntry
+                }
+            }
+        }
+        dest.writeBytes(bytes)
+        return dest.absolutePath
+    } catch (_: Exception) {
+        return null
+    }
+}

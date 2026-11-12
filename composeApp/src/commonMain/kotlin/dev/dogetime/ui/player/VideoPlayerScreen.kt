@@ -122,6 +122,8 @@ fun VideoPlayerScreen(
     stremioSubtitles: StremioSubtitlesApi? = null,
     kitsuMapping: KitsuMappingRepository? = null,
     watchHistory: WatchHistoryRepository? = null,
+    initialSubtitlePath: String? = null,
+    initialSubtitleLanguage: String? = null,
 ) {
     PlayerSystemUiEffect()
     // "Try again" starts a fresh player.
@@ -142,6 +144,8 @@ fun VideoPlayerScreen(
             stremioSubtitles = stremioSubtitles,
             kitsuMapping = kitsuMapping,
             watchHistory = watchHistory,
+            initialSubtitlePath = initialSubtitlePath,
+            initialSubtitleLanguage = initialSubtitleLanguage,
         )
     }
 }
@@ -165,6 +169,8 @@ private fun PlayerContent(
     stremioSubtitles: StremioSubtitlesApi? = null,
     kitsuMapping: KitsuMappingRepository? = null,
     watchHistory: WatchHistoryRepository? = null,
+    initialSubtitlePath: String? = null,
+    initialSubtitleLanguage: String? = null,
 ) {
     val controller = rememberVideoPlayerController(stream, title)
     val fullscreen = rememberFullscreenController()
@@ -195,6 +201,13 @@ private fun PlayerContent(
     }
 
     var activeSubtitleLanguage by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(initialSubtitlePath, controller.durationMs) {
+        if (initialSubtitlePath != null && controller.durationMs > 0L) {
+            val lang = initialSubtitleLanguage ?: "Default"
+            controller.addExternalSubtitle(initialSubtitlePath, lang, lang)
+            activeSubtitleLanguage = lang
+        }
+    }
     var stremioSubtitlesGroups by remember { mutableStateOf<List<SubtitleGroup>>(emptyList()) }
     var subdlGroups by remember { mutableStateOf<List<SubtitleGroup>>(emptyList()) }
     var openSubtitlesGroups by remember { mutableStateOf<List<SubtitleGroup>>(emptyList()) }

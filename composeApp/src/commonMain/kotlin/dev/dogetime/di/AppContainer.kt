@@ -1,5 +1,7 @@
 package dev.dogetime.di
 
+import dev.dogetime.core.TorrentDownloadManager
+import dev.dogetime.data.DownloadRepository
 import dev.dogetime.data.FavoritesRepository
 import dev.dogetime.data.KitsuApi
 import dev.dogetime.data.KitsuMappingRepository
@@ -7,8 +9,10 @@ import dev.dogetime.data.MediaRepository
 import dev.dogetime.data.OpenSubtitlesApi
 import dev.dogetime.data.StremioSubtitlesApi
 import dev.dogetime.data.SubdlApi
+import dev.dogetime.data.SubtitleDownloader
 import dev.dogetime.data.TmdbApi
 import dev.dogetime.data.TorrentioApi
+import dev.dogetime.data.UpdateChecker
 import dev.dogetime.data.WatchHistoryRepository
 import dev.dogetime.data.YtsSubsApi
 import dev.dogetime.data.createHttpClient
@@ -29,4 +33,17 @@ class AppContainer {
     val stremioSubtitles: StremioSubtitlesApi = StremioSubtitlesApi(httpClient, kitsuMapping)
     val favorites: FavoritesRepository = FavoritesRepository(database.favoriteDao())
     val watchHistory: WatchHistoryRepository = WatchHistoryRepository(database.watchHistoryDao())
+    val updateChecker: UpdateChecker = UpdateChecker(httpClient)
+
+    val downloadRepository: DownloadRepository = DownloadRepository(database.downloadDao())
+    val subtitleDownloader: SubtitleDownloader = SubtitleDownloader(
+        openSubtitles = openSubtitles,
+        subdl = subdl,
+        ytsSubs = ytsSubs,
+        stremioSubtitles = stremioSubtitles,
+    )
+    val downloadManager: TorrentDownloadManager = TorrentDownloadManager(
+        repository = downloadRepository,
+        subtitleDownloader = subtitleDownloader,
+    )
 }

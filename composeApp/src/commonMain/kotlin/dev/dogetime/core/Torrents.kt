@@ -43,6 +43,8 @@ expect object Torrents {
         magnet: String,
         fileName: String? = null,
         fileIndex: Int? = null,
+        season: Int? = null,
+        episode: Int? = null,
         onProgress: (TorrentProgress) -> Unit,
     ): TorrentStream
 }

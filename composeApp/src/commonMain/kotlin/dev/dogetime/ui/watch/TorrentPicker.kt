@@ -7,9 +7,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -19,6 +22,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,11 +42,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.dogetime.core.UiState
 import dev.dogetime.core.runForUiState
+import dev.dogetime.data.OpenSubtitlesApi
+import dev.dogetime.data.StremioSubtitlesApi
+import dev.dogetime.data.SubdlApi
 import dev.dogetime.data.TorrentProvider
 import dev.dogetime.data.TorrentioApi
+import dev.dogetime.domain.Subtitle
 import dev.dogetime.domain.TorrentOption
 import dev.dogetime.domain.WatchTarget
 import dev.dogetime.ui.components.dragToScroll
+import dev.dogetime.ui.player.PlayerIcons
 
 /** The quality groups the torrent list is filtered by. */
 private enum class QualityGroup(val label: String) {
@@ -74,6 +85,10 @@ internal fun TorrentPicker(
     onBack: () -> Unit,
     onChangeSource: () -> Unit,
     onPick: (TorrentOption) -> Unit,
+    onDownload: ((TorrentOption, Subtitle?) -> Unit)? = null,
+    openSubtitles: OpenSubtitlesApi? = null,
+    subdl: SubdlApi? = null,
+    stremioSubtitles: StremioSubtitlesApi? = null,
     modifier: Modifier = Modifier,
     initialProvider: TorrentProvider = TorrentProvider.Torrentio,
 ) {
@@ -82,6 +97,8 @@ internal fun TorrentPicker(
     // "Try again" bumps this to fetch the list again.
     var attempt by remember(target, provider) { mutableIntStateOf(0) }
     var group by remember(target, provider) { mutableStateOf(QualityGroup.FullHd) }
+    var torrentToDownload by remember { mutableStateOf<TorrentOption?>(null) }
+
     LaunchedEffect(target, attempt, provider) {
         options = UiState.Loading
         options = runForUiState { torrentio.streams(target, provider) }
@@ -118,12 +135,33 @@ internal fun TorrentPicker(
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             items(shown) { option ->
-                                TorrentRow(option, onClick = { onPick(option) })
+                                TorrentRow(
+                                    option = option,
+                                    onClick = { onPick(option) },
+                                    onDownloadClick = if (onDownload != null) {
+                                        { torrentToDownload = option }
+                                    } else null,
+                                )
                             }
                         }
                     }
                 }
             }
+        }
+
+        torrentToDownload?.let { opt ->
+            DownloadTorrentDialog(
+                option = opt,
+                target = target,
+                title = title,
+                onDismissRequest = { torrentToDownload = null },
+                onConfirm = { chosenOption, chosenSubtitle ->
+                    onDownload?.invoke(chosenOption, chosenSubtitle)
+                },
+                openSubtitles = openSubtitles,
+                subdl = subdl,
+                stremioSubtitles = stremioSubtitles,
+            )
         }
     }
 }
@@ -167,8 +205,12 @@ private fun QualityChips(selected: QualityGroup, onSelect: (QualityGroup) -> Uni
 }
 
 @Composable
-private fun TorrentRow(option: TorrentOption, onClick: () -> Unit) {
-    Column(
+private fun TorrentRow(
+    option: TorrentOption,
+    onClick: () -> Unit,
+    onDownloadClick: (() -> Unit)? = null,
+) {
+    Row(
         modifier = Modifier
             .widthIn(max = 560.dp)
             .fillMaxWidth()
@@ -176,43 +218,66 @@ private fun TorrentRow(option: TorrentOption, onClick: () -> Unit) {
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
             .clickable(onClick = onClick)
             .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = option.quality,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.primary)
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+                Text(
+                    text = listOfNotNull(
+                        option.seeders?.let { if (it == 1) "1 seeder" else "$it seeders" },
+                        option.size,
+                        option.site,
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Text(
-                text = option.quality,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(MaterialTheme.colorScheme.primary)
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-            )
-            Text(
-                text = listOfNotNull(
-                    option.seeders?.let { if (it == 1) "1 seeder" else "$it seeders" },
-                    option.size,
-                    option.site,
-                ).joinToString(" · "),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Text(
-            text = option.release,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        // A season pack: say which file in it is this episode.
-        option.fileName?.takeIf { it.substringBeforeLast('.') != option.release.substringBeforeLast('.') }?.let {
-            Text(
-                text = it,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
+                text = option.release,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            // A season pack: say which file in it is this episode.
+            option.fileName?.takeIf { it.substringBeforeLast('.') != option.release.substringBeforeLast('.') }?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        if (onDownloadClick != null) {
+            IconButton(
+                onClick = onDownloadClick,
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f),
+                    contentColor = MaterialTheme.colorScheme.primary,
+                ),
+                modifier = Modifier.size(38.dp),
+            ) {
+                Icon(
+                    imageVector = PlayerIcons.Download,
+                    contentDescription = "Download torrent with subtitles",
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
     }
 }

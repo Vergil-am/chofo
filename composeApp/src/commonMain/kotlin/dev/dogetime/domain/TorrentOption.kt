@@ -16,3 +16,13 @@ data class TorrentOption(
     val fileIndex: Int?,
     val fileName: String?,
 )
+
+/** Extracts the infoHash hex string from a magnet URI. */
+fun extractInfoHash(magnet: String): String {
+    val prefix = "urn:btih:"
+    val index = magnet.indexOf(prefix, ignoreCase = true)
+    if (index == -1) return magnet.hashCode().toString()
+    val after = magnet.substring(index + prefix.length)
+    val end = after.indexOf('&')
+    return if (end != -1) after.substring(0, end) else after
+}

@@ -8,6 +8,16 @@ private val appDir = File(System.getProperty("user.home"), ".dogetime")
 
 internal actual fun torrentDataDir(): File = File(appDir, "torrents")
 
+internal actual fun torrentDownloadsDir(): File {
+    val userHome = System.getProperty("user.home")
+    val defaultDownloads = File(userHome, "Downloads/Chofo")
+    return if (defaultDownloads.parentFile?.exists() == true) {
+        defaultDownloads.apply { mkdirs() }
+    } else {
+        File(appDir, "downloads").apply { mkdirs() }
+    }
+}
+
 /**
  * The native library ships inside a jar, where System.loadLibrary can't find it, so it is copied
  * out once and its path handed to libtorrent4j.

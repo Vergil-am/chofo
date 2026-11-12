@@ -1,6 +1,7 @@
 package dev.dogetime.ui.settings
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,20 +15,29 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,7 +51,11 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.dogetime.AppConfig
 import dev.dogetime.AppTheme
+import dev.dogetime.data.UpdateChecker
+import dev.dogetime.data.UpdateStatus
+import kotlinx.coroutines.launch
 
 private val GithubIcon = ImageVector.Builder(
     name = "Github",
@@ -181,6 +195,92 @@ private val ExternalLinkIcon = ImageVector.Builder(
     verticalLineTo(17f)
 }.build()
 
+private val RefreshIcon = ImageVector.Builder(
+    name = "Refresh",
+    defaultWidth = 24.dp,
+    defaultHeight = 24.dp,
+    viewportWidth = 24f,
+    viewportHeight = 24f,
+).path(
+    stroke = SolidColor(Color.White),
+    strokeLineWidth = 2f,
+    strokeLineCap = StrokeCap.Round,
+    strokeLineJoin = StrokeJoin.Round,
+) {
+    moveTo(23f, 4f)
+    verticalLineTo(10f)
+    horizontalLineTo(17f)
+    moveTo(1f, 20f)
+    verticalLineTo(14f)
+    horizontalLineTo(7f)
+    moveTo(3.51f, 9f)
+    arcTo(9f, 9f, 0f, false, true, 18.36f, 5.64f)
+    lineTo(23f, 10f)
+    moveTo(1f, 14f)
+    lineTo(5.64f, 18.36f)
+    arcTo(9f, 9f, 0f, false, false, 20.49f, 15f)
+}.build()
+
+private val CheckIcon = ImageVector.Builder(
+    name = "Check",
+    defaultWidth = 24.dp,
+    defaultHeight = 24.dp,
+    viewportWidth = 24f,
+    viewportHeight = 24f,
+).path(
+    stroke = SolidColor(Color.White),
+    strokeLineWidth = 2.4f,
+    strokeLineCap = StrokeCap.Round,
+    strokeLineJoin = StrokeJoin.Round,
+) {
+    moveTo(20f, 6f)
+    lineTo(9f, 17f)
+    lineTo(4f, 12f)
+}.build()
+
+private val DownloadIcon = ImageVector.Builder(
+    name = "Download",
+    defaultWidth = 24.dp,
+    defaultHeight = 24.dp,
+    viewportWidth = 24f,
+    viewportHeight = 24f,
+).path(
+    stroke = SolidColor(Color.White),
+    strokeLineWidth = 2f,
+    strokeLineCap = StrokeCap.Round,
+    strokeLineJoin = StrokeJoin.Round,
+) {
+    moveTo(12f, 3f)
+    lineTo(12f, 15f)
+    moveTo(7f, 10f)
+    lineTo(12f, 15f)
+    lineTo(17f, 10f)
+    moveTo(4f, 19f)
+    horizontalLineTo(20f)
+}.build()
+
+private val ShieldIcon = ImageVector.Builder(
+    name = "Shield",
+    defaultWidth = 24.dp,
+    defaultHeight = 24.dp,
+    viewportWidth = 24f,
+    viewportHeight = 24f,
+).path(
+    stroke = SolidColor(Color.White),
+    strokeLineWidth = 2f,
+    strokeLineCap = StrokeCap.Round,
+    strokeLineJoin = StrokeJoin.Round,
+) {
+    moveTo(12f, 22f)
+    curveTo(12f, 22f, 20f, 18f, 20f, 12f)
+    verticalLineTo(5f)
+    lineTo(12f, 2f)
+    lineTo(4f, 5f)
+    verticalLineTo(12f)
+    curveTo(4f, 18f, 12f, 22f, 12f, 22f)
+    close()
+}.build()
+
 private data class SocialLink(
     val platform: String,
     val username: String,
@@ -224,11 +324,30 @@ private val SocialLinks = listOf(
 fun SettingsScreen(
     currentTheme: AppTheme,
     onThemeSelect: (AppTheme) -> Unit,
+    updateChecker: UpdateChecker? = null,
     modifier: Modifier = Modifier,
     bottomInset: Dp = 0.dp,
 ) {
     val scrollState = rememberScrollState()
     val uriHandler = LocalUriHandler.current
+    val coroutineScope = rememberCoroutineScope()
+
+    var updateStatus by remember { mutableStateOf<UpdateStatus>(UpdateStatus.Idle) }
+
+    fun triggerCheck() {
+        if (updateChecker != null && updateStatus !is UpdateStatus.Checking) {
+            updateStatus = UpdateStatus.Checking
+            coroutineScope.launch {
+                updateStatus = updateChecker.checkForUpdates(AppConfig.APP_VERSION)
+            }
+        }
+    }
+
+    LaunchedEffect(updateChecker) {
+        if (updateChecker != null && updateStatus is UpdateStatus.Idle) {
+            triggerCheck()
+        }
+    }
 
     Column(
         modifier = modifier
@@ -422,6 +541,391 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(36.dp))
 
+        // App Updates Section
+        Text(
+            text = "Updates",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Check for new releases and application updates",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Spacer(Modifier.height(14.dp))
+
+        Card(
+            modifier = Modifier
+                .widthIn(max = 680.dp)
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = when (updateStatus) {
+                    is UpdateStatus.UpdateAvailable -> MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                    else -> MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)
+                },
+            ),
+            border = if (updateStatus is UpdateStatus.UpdateAvailable) {
+                BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+            } else {
+                BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant)
+            },
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                when (val status = updateStatus) {
+                    UpdateStatus.Idle -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Current Version: v${AppConfig.APP_VERSION}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = "Tap to check for updates from GitHub",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Button(
+                                onClick = ::triggerCheck,
+                                shape = RoundedCornerShape(12.dp),
+                            ) {
+                                Icon(RefreshIcon, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Check for updates")
+                            }
+                        }
+                    }
+
+                    UpdateStatus.Checking -> {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.5.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Column {
+                                Text(
+                                    text = "Checking for updates...",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = "Connecting to github.com/${AppConfig.RELEASES_REPO}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+
+                    is UpdateStatus.UpToDate -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFA6E3A1).copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = CheckIcon,
+                                        contentDescription = null,
+                                        tint = Color(0xFFA6E3A1),
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        text = "You're up to date!",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Text(
+                                        text = "Version ${status.version} is currently the latest release",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = ::triggerCheck,
+                                shape = RoundedCornerShape(12.dp),
+                            ) {
+                                Text("Check again")
+                            }
+                        }
+                    }
+
+                    is UpdateStatus.UpdateAvailable -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = DownloadIcon,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text(
+                                        text = "Update Available",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(MaterialTheme.colorScheme.primary)
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    ) {
+                                        Text(
+                                            text = status.latestVersion,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = status.releaseName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = "Current: v${AppConfig.APP_VERSION} → Latest: ${status.latestVersion}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+
+                        if (!status.releaseNotes.isNullOrBlank()) {
+                            Card(
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        text = "What's New:",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        text = status.releaseNotes,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 6,
+                                    )
+                                }
+                            }
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Button(
+                                onClick = { runCatching { uriHandler.openUri(status.downloadUrl) } },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(DownloadIcon, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Download Update", fontWeight = FontWeight.SemiBold)
+                            }
+                            OutlinedButton(
+                                onClick = { runCatching { uriHandler.openUri(status.releaseUrl) } },
+                                shape = RoundedCornerShape(12.dp),
+                            ) {
+                                Icon(ExternalLinkIcon, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("View on GitHub")
+                            }
+                        }
+                    }
+
+                    is UpdateStatus.Error -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text(
+                                    text = "Couldn't check for updates",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                                Text(
+                                    text = status.message,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                )
+                            }
+                            Button(
+                                onClick = ::triggerCheck,
+                                shape = RoundedCornerShape(12.dp),
+                            ) {
+                                Text("Retry")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(36.dp))
+
+        // Legal Disclaimer & Terms of Use Section
+        Text(
+            text = "Legal Disclaimer & Terms of Use",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Content hosting, indexer limitations, and terms of service",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Spacer(Modifier.height(14.dp))
+
+        Card(
+            modifier = Modifier
+                .widthIn(max = 680.dp)
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+            ),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = ShieldIcon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "Non-Hosting Policy & Legal Notice",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "Please read these terms carefully before using ${AppConfig.APP_NAME}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                )
+
+                LegalSectionItem(
+                    title = "1. No Media Hosting",
+                    description = "${AppConfig.APP_NAME} does not host, upload, store, archive, or transmit any video files, media streams, torrents, or copyrighted content on any server. None of the media or streams accessible through this application are hosted on servers owned, managed, or operated by the developers.",
+                )
+
+                LegalSectionItem(
+                    title = "2. Public Indexing & Third-Party APIs",
+                    description = "This application operates exclusively as a client-side search engine and media browser. Movie and TV show metadata, descriptions, and artwork are retrieved from public community databases (such as TMDB and Kitsu). Media playback links are parsed dynamically from publicly available third-party websites across the web.",
+                )
+
+                LegalSectionItem(
+                    title = "3. Third-Party Content & Liability",
+                    description = "The developers of ${AppConfig.APP_NAME} have no control over, and accept no liability for, the legality, copyright compliance, uptime, privacy policies, or content of external third-party hosts or servers. Linking to or displaying content from third-party services does not constitute an endorsement.",
+                )
+
+                LegalSectionItem(
+                    title = "4. Copyright & DMCA Notices",
+                    description = "All trademarks, logos, registered marks, and copyrighted materials belong to their respective owners. Because ${AppConfig.APP_NAME} does not host or store any files, copyright infringement notices or DMCA takedown requests must be directed to the third-party web hosts actually hosting the content.",
+                )
+
+                LegalSectionItem(
+                    title = "5. Terms of Use & User Responsibility",
+                    description = "This application is provided for personal, informational, and educational discovery purposes on an 'AS IS' basis without warranty of any kind. Users are solely responsible for ensuring their usage complies with all applicable local laws, regulations, and copyright restrictions in their jurisdiction.",
+                )
+            }
+        }
+
+        Spacer(Modifier.height(36.dp))
+
         // About section
         Text(
             text = "About",
@@ -446,13 +950,13 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = "Chofo",
+                    text = AppConfig.APP_NAME,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = "Version 1.0.0",
+                    text = "Version ${AppConfig.APP_VERSION}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -464,5 +968,25 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun LegalSectionItem(
+    title: String,
+    description: String,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
