@@ -146,7 +146,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "Chofo"
-            packageVersion = "0.1.0"
+            packageVersion = "0.1.1"
             appResourcesRootDir.set(project.layout.projectDirectory.dir("app-resources"))
         }
     }

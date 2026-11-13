@@ -18,7 +18,7 @@ import io.ktor.http.contentType
 private const val API_BASE_URL = "https://api.opensubtitles.com/api/v1"
 private const val SEARCH_URL = "$API_BASE_URL/subtitles"
 private const val DOWNLOAD_URL = "$API_BASE_URL/download"
-private const val USER_AGENT = "chofo v0.1.0"
+private const val USER_AGENT = "chofo v0.1.1"
 
 /** Thin wrapper over the OpenSubtitles.com REST API. Returns domain models grouped by language. */
 class OpenSubtitlesApi(
