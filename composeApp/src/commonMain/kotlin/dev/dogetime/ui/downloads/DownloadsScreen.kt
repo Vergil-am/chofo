@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,18 +45,27 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import dev.dogetime.core.TorrentDownloadManager
+import dev.dogetime.data.WatchHistoryRepository
 import dev.dogetime.domain.DownloadItem
 import dev.dogetime.domain.DownloadStatus
+import dev.dogetime.domain.MediaType
+import dev.dogetime.domain.WatchHistoryItem
 import dev.dogetime.ui.player.PlayerIcons
+import kotlinx.coroutines.flow.flowOf
 
 @Composable
 fun DownloadsScreen(
     downloadManager: TorrentDownloadManager,
     onPlayDownload: (DownloadItem) -> Unit,
     modifier: Modifier = Modifier,
+    watchHistory: WatchHistoryRepository? = null,
     bottomInset: Dp = 0.dp,
 ) {
     val downloads by downloadManager.repository.observeAll().collectAsState(initial = emptyList())
+    val watchHistoryItems by (watchHistory?.observeAll() ?: flowOf(emptyList())).collectAsState(initial = emptyList())
+    val historyMap = remember(watchHistoryItems) {
+        watchHistoryItems.associateBy { it.watchKey }
+    }
 
     Column(
         modifier = modifier
@@ -127,6 +137,7 @@ fun DownloadsScreen(
                 items(downloads, key = { it.id }) { item ->
                     DownloadCard(
                         item = item,
+                        watchProgress = historyMap[item.watchKey()],
                         onPlay = { onPlayDownload(item) },
                         onPause = { downloadManager.pauseDownload(item.id) },
                         onResume = { downloadManager.resumeDownload(item.id) },
@@ -141,6 +152,7 @@ fun DownloadsScreen(
 @Composable
 private fun DownloadCard(
     item: DownloadItem,
+    watchProgress: WatchHistoryItem? = null,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -329,31 +341,69 @@ private fun DownloadCard(
                 }
 
                 DownloadStatus.COMPLETED -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "${formatBytes(item.totalBytes)} · Ready to play offline",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFA6E3A1),
-                            fontWeight = FontWeight.Medium,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = onPlay,
-                                shape = RoundedCornerShape(10.dp),
-                            ) {
-                                Icon(PlayerIcons.Play, contentDescription = null, modifier = Modifier.size(14.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Play Offline")
+                    val progress = watchProgress?.progress ?: 0f
+                    val isFinished = progress >= 0.95f
+                    val isPartiallyWatched = progress in 0.01f..0.94f
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (isPartiallyWatched) {
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp)),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            val statusText = when {
+                                isFinished -> "${formatBytes(item.totalBytes)} · Watched"
+                                isPartiallyWatched -> "${formatBytes(item.totalBytes)} · ${(progress * 100).toInt()}% watched"
+                                else -> "${formatBytes(item.totalBytes)} · Ready to play offline"
                             }
-                            OutlinedButton(
-                                onClick = onCancel,
-                                shape = RoundedCornerShape(10.dp),
-                            ) {
-                                Text("Delete")
+                            val statusColor = when {
+                                isFinished || !isPartiallyWatched -> Color(0xFFA6E3A1)
+                                else -> MaterialTheme.colorScheme.primary
+                            }
+
+                            Text(
+                                text = statusText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = statusColor,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = onPlay,
+                                    shape = RoundedCornerShape(10.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = if (isFinished) PlayerIcons.Replay else PlayerIcons.Play,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        when {
+                                            isFinished -> "Watch Again"
+                                            isPartiallyWatched -> "Resume"
+                                            else -> "Play Offline"
+                                        }
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = onCancel,
+                                    shape = RoundedCornerShape(10.dp),
+                                ) {
+                                    Text("Delete")
+                                }
                             }
                         }
                     }
@@ -369,6 +419,7 @@ private fun DownloadCard(
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Button(
                                 onClick = onResume,
@@ -409,6 +460,16 @@ private fun DownloadCard(
                 }
             }
         }
+    }
+}
+
+private fun DownloadItem.watchKey(): String {
+    val resolvedId = mediaId ?: (infoHash.hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) })
+    val resolvedType = mediaType ?: if (season != null) MediaType.Tv else MediaType.Movie
+    return if (season != null && episode != null) {
+        "${resolvedType.name}:$resolvedId:$season:$episode"
+    } else {
+        "${resolvedType.name}:$resolvedId"
     }
 }
 

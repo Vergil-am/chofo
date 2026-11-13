@@ -19,6 +19,10 @@ class WatchHistoryRepository(private val dao: WatchHistoryDao) {
     fun observeHistory(): Flow<List<WatchHistoryItem>> =
         dao.observeAllRecent().map { list -> list.map { it.toDomain() } }
 
+    /** Observes all watch history records across all media. */
+    fun observeAll(): Flow<List<WatchHistoryItem>> =
+        dao.observeAll().map { list -> list.map { it.toDomain() } }
+
     /** Observes all watched episodes/entries for a given media title. */
     fun observeByMedia(type: MediaType, id: Int): Flow<List<WatchHistoryItem>> =
         dao.observeByMedia(id, type.name).map { list -> list.map { it.toDomain() } }

@@ -64,6 +64,8 @@ import coil3.compose.setSingletonImageLoaderFactory
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import dev.dogetime.di.AppContainer
 import dev.dogetime.domain.MediaItem
+import dev.dogetime.domain.MediaType
+import dev.dogetime.domain.WatchTarget
 import dev.dogetime.navigation.Destination
 import dev.dogetime.navigation.Navigator
 import dev.dogetime.ui.browse.BrowseScreen
@@ -289,6 +291,7 @@ fun App() {
                                         )
                                         Destination.Downloads -> DownloadsScreen(
                                             downloadManager = container.downloadManager,
+                                            watchHistory = container.watchHistory,
                                             onPlayDownload = { item ->
                                                 navigator.open(Destination.OfflineWatch(item))
                                             },
@@ -338,11 +341,35 @@ fun App() {
                                                 url = playItem.videoFilePath ?: "",
                                                 headers = emptyMap(),
                                             )
+                                            val resolvedId = playItem.mediaId ?: (playItem.infoHash.hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) })
+                                            val resolvedType = playItem.mediaType ?: if (playItem.season != null) MediaType.Tv else MediaType.Movie
+                                            val target = if (playItem.season != null && playItem.episode != null) {
+                                                WatchTarget.Episode(
+                                                    showId = resolvedId,
+                                                    season = playItem.season,
+                                                    episode = playItem.episode,
+                                                )
+                                            } else {
+                                                WatchTarget.Movie(id = resolvedId)
+                                            }
+                                            val mediaItem = MediaItem(
+                                                id = resolvedId,
+                                                type = resolvedType,
+                                                title = playItem.title,
+                                                overview = "",
+                                                posterUrl = playItem.posterUrl,
+                                                backdropUrl = playItem.backdropUrl,
+                                                rating = 0.0,
+                                                year = null,
+                                            )
                                             VideoPlayerScreen(
                                                 stream = localStream,
                                                 title = playItem.title,
                                                 onBack = { navigator.back() },
                                                 onOpenExternal = null,
+                                                target = target,
+                                                mediaItem = mediaItem,
+                                                watchHistory = container.watchHistory,
                                                 initialSubtitlePath = playItem.subtitleFilePath,
                                                 initialSubtitleLanguage = playItem.subtitleLanguage,
                                                 modifier = destModifier,

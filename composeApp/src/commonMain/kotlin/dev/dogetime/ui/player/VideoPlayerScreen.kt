@@ -280,8 +280,8 @@ private fun PlayerContent(
         if (target == null || mediaItem == null || watchHistory == null) return@LaunchedEffect
         while (true) {
             delay(5_000L)
-            val pos = controller.positionMs
             val dur = controller.durationMs
+            val pos = if (controller.isEnded && dur > 0) dur else controller.positionMs
             if (pos > 0) {
                 try {
                     watchHistory.saveProgress(
@@ -297,12 +297,29 @@ private fun PlayerContent(
         }
     }
 
+    // Immediately mark finished when playback ends.
+    LaunchedEffect(controller.isEnded, target, mediaItem, watchHistory) {
+        if (controller.isEnded && target != null && mediaItem != null && watchHistory != null) {
+            val dur = controller.durationMs
+            if (dur > 0) {
+                try {
+                    watchHistory.saveProgress(
+                        target = target,
+                        mediaItem = mediaItem,
+                        positionMs = dur,
+                        durationMs = dur,
+                    )
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
     // Save final progress on exit.
     DisposableEffect(target, mediaItem, watchHistory, controller) {
         onDispose {
             if (target != null && mediaItem != null && watchHistory != null) {
-                val pos = controller.positionMs
                 val dur = controller.durationMs
+                val pos = if (controller.isEnded && dur > 0) dur else controller.positionMs
                 if (pos > 0) {
                     scope.launch {
                         try {

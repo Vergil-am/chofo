@@ -14,4 +14,12 @@ data class WatchHistoryItem(
     /** Watch progress as a fraction between 0.0 and 1.0 (if duration is known). */
     val progress: Float
         get() = if (durationMs > 0) (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
+
+    /** Cache/lookup key matching WatchHistoryEntity.key. */
+    val watchKey: String
+        get() = if (season != null && episode != null) {
+            "${mediaItem.type.name}:${mediaItem.id}:$season:$episode"
+        } else {
+            "${mediaItem.type.name}:${mediaItem.id}"
+        }
 }

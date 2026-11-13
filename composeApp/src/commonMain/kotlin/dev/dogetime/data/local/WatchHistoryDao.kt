@@ -28,6 +28,12 @@ interface WatchHistoryDao {
     @Query("SELECT * FROM watch_history WHERE id = :id AND type = :type ORDER BY season ASC, episode ASC")
     fun observeByMedia(id: Int, type: String): Flow<List<WatchHistoryEntity>>
 
+    /**
+     * Observes all watch history records ordered by recency.
+     */
+    @Query("SELECT * FROM watch_history ORDER BY lastWatchedAt DESC")
+    fun observeAll(): Flow<List<WatchHistoryEntity>>
+
     @Query("SELECT * FROM watch_history WHERE watchKey = :watchKey LIMIT 1")
     fun observeByKey(watchKey: String): Flow<WatchHistoryEntity?>
 
