@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -25,8 +26,11 @@ import dev.dogetime.core.CapturedStream
 import dev.dogetime.ui.watch.isHlsPlaylist
 import `is`.xyz.mpv.MPV
 import `is`.xyz.mpv.MPVNode
+import java.io.File
 
 actual val playerUsesMouse: Boolean = false
+
+private const val TAG = "DogetimePlayer"
 
 private val mainHandler = Handler(Looper.getMainLooper())
 private fun onUi(block: () -> Unit) {
@@ -44,21 +48,29 @@ internal class MpvAndroidPlayerController(
     private val context: Context,
     private val stream: CapturedStream,
     title: String,
-) : VideoPlayerController(), MPV.EventObserver {
+) : VideoPlayerController(), MPV.EventObserver, MPV.LogObserver {
 
     val mpv = MPV()
-    private var surfaceAttached = false
+    var surfaceAttached = false
+        private set
     private var fileLoaded = false
 
     private var started = false
     private var pausedForCache = false
     private var seeking = false
+    private var destroyed = false
 
     init {
         try {
+            Log.d(TAG, "Initializing player for URL: ${stream.url}")
+            if (!stream.url.startsWith("http://") && !stream.url.startsWith("https://")) {
+                val f = File(stream.url)
+                Log.d(TAG, "Local file exists: ${f.exists()}, canRead: ${f.canRead()}, length: ${f.length()}")
+            }
+
             `is`.xyz.mpv.Utils.copyAssets(context.applicationContext)
 
-            val fontsConf = java.io.File(context.filesDir, "fonts.conf")
+            val fontsConf = File(context.filesDir, "fonts.conf")
             if (!fontsConf.exists()) {
                 fontsConf.writeText(
                     """
@@ -82,7 +94,7 @@ internal class MpvAndroidPlayerController(
 
             mpv.setOptionString("vo", "gpu")
             mpv.setOptionString("gpu-context", "android")
-            mpv.setOptionString("hwdec", "mediacodec-copy")
+            mpv.setOptionString("hwdec", "auto")
             mpv.setOptionString("keep-open", "yes")
             mpv.setOptionString("ytdl", "no")
             mpv.setOptionString("force-media-title", title)
@@ -105,8 +117,12 @@ internal class MpvAndroidPlayerController(
 
             mpv.init()
             mpv.setOptionString("force-window", "no")
+            mpv.setOptionString("idle", "once")
 
             mpv.addObserver(this)
+            mpv.addLogObserver(this)
+            mpv.command("request_log_messages", "info")
+
             mpv.observeProperty("pause", MPV.mpvFormat.MPV_FORMAT_FLAG)
             mpv.observeProperty("time-pos", MPV.mpvFormat.MPV_FORMAT_DOUBLE)
             mpv.observeProperty("duration", MPV.mpvFormat.MPV_FORMAT_DOUBLE)
@@ -120,37 +136,55 @@ internal class MpvAndroidPlayerController(
             mpv.observeProperty("sid", MPV.mpvFormat.MPV_FORMAT_STRING)
             mpv.observeProperty("track-list", MPV.mpvFormat.MPV_FORMAT_NONE)
 
+            if (stream.url.isNotEmpty()) {
+                Log.d(TAG, "Loading initial stream: ${stream.url}")
+                mpv.command("loadfile", stream.url)
+                fileLoaded = true
+            }
+
             isPlaying = true
+            Log.d(TAG, "MPV initialized successfully")
         } catch (e: Exception) {
+            Log.e(TAG, "Error initializing MPV", e)
             error = e.message ?: "mpv failed to start."
             isBuffering = false
         }
     }
 
-    private var destroyed = false
+    override fun logMessage(prefix: String, level: Int, text: String) {
+        Log.d("DogetimeMpv", "[$prefix] ($level) $text")
+    }
 
     fun attachSurface(surface: Surface) {
-        if (destroyed) return
+        Log.d(TAG, "attachSurface: isValid=${surface.isValid}, surfaceAttached=$surfaceAttached, destroyed=$destroyed")
+        if (destroyed || !surface.isValid) return
         try {
             mpv.attachSurface(surface)
             mpv.setOptionString("force-window", "yes")
             mpv.setPropertyString("vo", "gpu")
             surfaceAttached = true
-            if (!fileLoaded) {
+            if (!fileLoaded && stream.url.isNotEmpty()) {
+                Log.d(TAG, "Loading file in attachSurface: ${stream.url}")
                 mpv.command("loadfile", stream.url)
                 fileLoaded = true
             }
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to attach surface", e)
             error = e.message ?: "Failed to attach surface."
         }
     }
 
     fun detachSurface() {
+        Log.d(TAG, "detachSurface: surfaceAttached=$surfaceAttached, destroyed=$destroyed")
         if (destroyed || !surfaceAttached) return
         surfaceAttached = false
         try {
+            mpv.setPropertyString("vo", "null")
+            mpv.setPropertyString("force-window", "no")
             mpv.detachSurface()
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Error detaching surface", e)
+        }
     }
 
     fun setFit(fit: VideoFit) {
@@ -172,13 +206,15 @@ internal class MpvAndroidPlayerController(
     }
 
     fun release() {
+        Log.d(TAG, "release: destroyed=$destroyed")
         if (destroyed) return
         try {
             mpv.command("stop")
             detachSurface()
             destroyed = true
             mpv.removeObserver(this)
-            
+            mpv.removeLogObserver(this)
+
             // Destroy asynchronously to avoid libmpv mutex races with network threads
             val instance = mpv
             Thread {
@@ -217,7 +253,7 @@ internal class MpvAndroidPlayerController(
 
     override fun selectQuality(quality: VideoQuality?) {
         val target = quality?.key ?: return
-        mpv.command("loadfile", target, "replace", "-1", "start=${positionMs / 1000.0}")
+        mpv.command("loadfile", target, "replace", "0", "start=${positionMs / 1000.0}")
         selectedQuality = quality
     }
 
@@ -249,7 +285,8 @@ internal class MpvAndroidPlayerController(
         try {
             val count = mpv.getPropertyInt("track-list/count") ?: 0
             val tracks = mutableListOf<SubtitleTrack>()
-            var currentSid: Int? = mpv.getPropertyInt("sid")
+            // "sid" in mpv is a string ("no", "auto", "1", etc.), not format 4 (INT64).
+            var currentSid: Int? = mpv.getPropertyString("sid")?.toIntOrNull()
             for (i in 0 until count) {
                 val type = mpv.getPropertyString("track-list/$i/type")
                 if (type == "sub") {
@@ -278,6 +315,7 @@ internal class MpvAndroidPlayerController(
 
     override fun eventProperty(property: String, value: Boolean) {
         onUi {
+            Log.d(TAG, "eventProperty boolean: $property = $value")
             when (property) {
                 "pause" -> isPlaying = !value
                 "paused-for-cache" -> { pausedForCache = value; updateBuffering() }
@@ -290,6 +328,7 @@ internal class MpvAndroidPlayerController(
 
     override fun eventProperty(property: String, value: Long) {
         onUi {
+            Log.d(TAG, "eventProperty long: $property = $value")
             when (property) {
                 "height" -> videoHeight = value.toInt()
             }
@@ -299,7 +338,14 @@ internal class MpvAndroidPlayerController(
     override fun eventProperty(property: String, value: Double) {
         onUi {
             when (property) {
-                "time-pos" -> positionMs = (value * 1000).toLong()
+                "time-pos" -> {
+                    positionMs = (value * 1000).toLong()
+                    if (!started) {
+                        Log.d(TAG, "First time-pos: $value -> setting started = true")
+                        started = true
+                        updateBuffering()
+                    }
+                }
                 "duration" -> durationMs = (value * 1000).toLong()
                 "demuxer-cache-time" -> bufferedMs = (value * 1000).toLong()
                 "speed" -> speed = value.toFloat()
@@ -309,6 +355,7 @@ internal class MpvAndroidPlayerController(
 
     override fun eventProperty(property: String, value: String) {
         onUi {
+            Log.d(TAG, "eventProperty string: $property = $value")
             if (property == "sid") {
                 val currentSid = value.toIntOrNull()
                 selectedSubtitleTrack = subtitleTracks.find { it.id == currentSid }
@@ -320,17 +367,25 @@ internal class MpvAndroidPlayerController(
 
     override fun event(eventId: Int, data: MPVNode) {
         onUi {
+            Log.d(TAG, "event: $eventId")
             when (eventId) {
                 MPV.mpvEvent.MPV_EVENT_FILE_LOADED -> {
+                    Log.d(TAG, "MPV_EVENT_FILE_LOADED")
                     started = true
                     updateTracks()
                     updateBuffering()
                 }
                 MPV.mpvEvent.MPV_EVENT_PLAYBACK_RESTART -> {
+                    Log.d(TAG, "MPV_EVENT_PLAYBACK_RESTART")
+                    started = true
                     updateTracks()
                     updateBuffering()
                 }
-                MPV.mpvEvent.MPV_EVENT_END_FILE -> isEnded = true
+                MPV.mpvEvent.MPV_EVENT_END_FILE -> {
+                    Log.d(TAG, "MPV_EVENT_END_FILE")
+                    isEnded = true
+                    isBuffering = false
+                }
             }
         }
     }
@@ -358,6 +413,47 @@ actual fun rememberVideoPlayerController(stream: CapturedStream, title: String):
     return controller
 }
 
+internal class CallbackSurfaceView(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
+    var boundController: MpvAndroidPlayerController? = null
+        set(value) {
+            if (field != value) {
+                field?.detachSurface()
+                field = value
+                if (value != null && holder.surface.isValid) {
+                    value.attachSurface(holder.surface)
+                }
+            }
+        }
+
+    init {
+        layoutParams = ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+        )
+        holder.addCallback(this)
+    }
+
+    override fun surfaceCreated(holder: SurfaceHolder) {
+        Log.d(TAG, "surfaceCreated: surface=${holder.surface}")
+        if (holder.surface.isValid) {
+            boundController?.attachSurface(holder.surface)
+        }
+    }
+
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        Log.d(TAG, "surfaceChanged: ${width}x${height}, format=$format")
+        boundController?.mpv?.setPropertyString("android-surface-size", "${width}x$height")
+        if (holder.surface.isValid && boundController?.surfaceAttached != true) {
+            boundController?.attachSurface(holder.surface)
+        }
+    }
+
+    override fun surfaceDestroyed(holder: SurfaceHolder) {
+        Log.d(TAG, "surfaceDestroyed")
+        boundController?.detachSurface()
+    }
+}
+
 @Composable
 actual fun VideoSurface(controller: VideoPlayerController, fit: VideoFit, modifier: Modifier) {
     val mpvController = controller as MpvAndroidPlayerController
@@ -366,23 +462,15 @@ actual fun VideoSurface(controller: VideoPlayerController, fit: VideoFit, modifi
     }
     AndroidView(
         factory = { context ->
-            SurfaceView(context).apply {
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                )
-                holder.addCallback(object : SurfaceHolder.Callback {
-                    override fun surfaceCreated(holder: SurfaceHolder) {
-                        mpvController.attachSurface(holder.surface)
-                    }
-
-                    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
-
-                    override fun surfaceDestroyed(holder: SurfaceHolder) {
-                        mpvController.detachSurface()
-                    }
-                })
+            CallbackSurfaceView(context).apply {
+                boundController = mpvController
             }
+        },
+        update = { view ->
+            view.boundController = mpvController
+        },
+        onReset = { view ->
+            view.boundController = null
         },
         modifier = modifier,
     )

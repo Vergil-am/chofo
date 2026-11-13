@@ -73,6 +73,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import dev.chrisbanes.haze.ExperimentalHazeApi
 import dev.chrisbanes.haze.HazeInput
@@ -95,12 +96,15 @@ import dev.dogetime.domain.WatchTarget
 import dev.dogetime.domain.withMetadata
 import dev.dogetime.ui.components.ErrorBox
 import dev.dogetime.ui.components.GenrePill
+import dev.dogetime.ui.components.LocalDownloadedEpisodes
+import dev.dogetime.ui.components.LocalDownloadedMediaIds
 import dev.dogetime.ui.components.MediaPoster
 import dev.dogetime.ui.components.MediaRow
 import dev.dogetime.ui.components.RatingRing
 import dev.dogetime.ui.components.dragToScroll
 import dev.dogetime.ui.components.oneDecimal
 import dev.dogetime.ui.components.ratingText
+import dev.dogetime.ui.player.PlayerIcons
 
 @Composable
 fun DetailsScreen(
@@ -294,7 +298,7 @@ private fun DetailsContent(
             WideDetails(details, episodes, episodeProgress, onSeasonSelected, onWatch, isFavorite, onToggleFavorite, onOpen, heroHeight)
         } else {
             LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                detailsSection(details, onWatch, isFavorite, onToggleFavorite, heroHeight = heroHeight, includeOverviewInHero = isMediumOrWider)
+                detailsSection(details, onWatch, isFavorite, onToggleFavorite, heroHeight = heroHeight, includeOverviewInHero = isMediumOrWider, episodeProgress = episodeProgress)
                 if (isLoading) {
                     item {
                         Box(
@@ -393,6 +397,7 @@ private fun WideDetails(
                     onHeroHeightChanged = { heroContentHeightPx = it },
                     heroHeight = heroHeight,
                     includeOverviewInHero = true,
+                    episodeProgress = episodeProgress,
                 )
                 castSection(details)
                 relatedSection(details, onOpen)
@@ -458,6 +463,7 @@ private fun LazyListScope.detailsSection(
     onHeroHeightChanged: (Int) -> Unit = {},
     heroHeight: Dp = 400.dp,
     includeOverviewInHero: Boolean = false,
+    episodeProgress: Map<Pair<Int, Int>, Float> = emptyMap(),
 ) {
     val media = details.item
     item {
@@ -483,15 +489,43 @@ private fun LazyListScope.detailsSection(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.Bottom,
                 ) {
-                    MediaPoster(
-                        url = media.posterUrl,
-                        title = media.title,
-                        sharedKey = "poster-${media.type}-${media.id}",
-                        modifier = Modifier
-                            .width(130.dp)
-                            .aspectRatio(2f / 3f)
-                            .shadow(12.dp, RoundedCornerShape(12.dp)),
-                    )
+                    Box {
+                        MediaPoster(
+                            url = media.posterUrl,
+                            title = media.title,
+                            sharedKey = "poster-${media.type}-${media.id}",
+                            modifier = Modifier
+                                .width(130.dp)
+                                .aspectRatio(2f / 3f)
+                                .shadow(12.dp, RoundedCornerShape(12.dp)),
+                        )
+                        if (media.id in LocalDownloadedMediaIds.current) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(6.dp)
+                                    .background(Mocha.Crust.copy(alpha = 0.85f), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 3.dp),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Icon(
+                                        PlayerIcons.Download,
+                                        contentDescription = "Downloaded",
+                                        tint = Mocha.Green,
+                                        modifier = Modifier.size(11.dp),
+                                    )
+                                    Text(
+                                        text = "Downloaded",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                        color = Mocha.Green,
+                                    )
+                                }
+                            }
+                        }
+                    }
                     Column(modifier = Modifier.weight(1f)) {
                         // Logo image or text title.
                         if (details.logoUrl != null) {
@@ -563,14 +597,54 @@ private fun LazyListScope.detailsSection(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (media.type == MediaType.Movie || (media.type == MediaType.Anime && details.seasons.isEmpty())) {
+                        val isDownloaded = media.id in LocalDownloadedMediaIds.current
                         Button(
                             onClick = { onWatch(WatchTarget.Movie(media.id, kitsuId = details.kitsuId), media.title) },
                             shape = RoundedCornerShape(50),
                             contentPadding = PaddingValues(horizontal = 28.dp, vertical = 12.dp),
+                            colors = if (isDownloaded) {
+                                ButtonDefaults.buttonColors(
+                                    containerColor = Mocha.Green,
+                                    contentColor = Mocha.Crust,
+                                )
+                            } else ButtonDefaults.buttonColors(),
                         ) {
-                            Icon(PlayIcon, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(if (isDownloaded) PlayerIcons.Download else PlayIcon, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Watch Now", fontWeight = FontWeight.SemiBold)
+                            Text(if (isDownloaded) "Watch Offline" else "Watch Now", fontWeight = FontWeight.SemiBold)
+                        }
+                    } else if (details.seasons.isNotEmpty()) {
+                        val downloadedEpisodes = LocalDownloadedEpisodes.current
+                        val downloadedForShow = downloadedEpisodes.filter { it.first == media.id }
+                        val targetEp = if (downloadedForShow.isNotEmpty()) {
+                            downloadedForShow.map { it.second }.minWithOrNull(compareBy({ it.first }, { it.second })) ?: (1 to 1)
+                        } else {
+                            val inProgress = episodeProgress.entries
+                                .filter { it.value > 0.05f && it.value < 0.92f }
+                                .minByOrNull { it.key.first * 1000 + it.key.second }
+                                ?.key
+                            inProgress ?: (1 to 1)
+                        }
+                        val isDownloaded = (media.id to targetEp) in downloadedEpisodes
+                        val epLabel = "S${targetEp.first}E${targetEp.second}"
+                        val label = "${media.title} $epLabel"
+                        Button(
+                            onClick = { onWatch(WatchTarget.Episode(media.id, targetEp.first, targetEp.second), label) },
+                            shape = RoundedCornerShape(50),
+                            contentPadding = PaddingValues(horizontal = 28.dp, vertical = 12.dp),
+                            colors = if (isDownloaded) {
+                                ButtonDefaults.buttonColors(
+                                    containerColor = Mocha.Green,
+                                    contentColor = Mocha.Crust,
+                                )
+                            } else ButtonDefaults.buttonColors(),
+                        ) {
+                            Icon(if (isDownloaded) PlayerIcons.Download else PlayIcon, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                if (isDownloaded) "Watch Offline ($epLabel)" else "Watch $epLabel",
+                                fontWeight = FontWeight.SemiBold,
+                            )
                         }
                     }
                     // Heart icon button — circular.
@@ -808,11 +882,14 @@ private fun EpisodeList(
         }
         // Rows carry 8dp of padding themselves, so their press highlight has room around the content.
         is UiState.Success -> Column(modifier = Modifier.padding(horizontal = 8.dp)) {
+            val downloadedEpisodes = LocalDownloadedEpisodes.current
             content.data.forEach { episode ->
                 val progress = episodeProgress[episode.seasonNumber to episode.number]
+                val isDownloaded = (showId to (episode.seasonNumber to episode.number)) in downloadedEpisodes
                 EpisodeRow(
                     episode = episode,
                     progress = progress,
+                    isDownloaded = isDownloaded,
                     onWatch = {
                         val label = "$showTitle S${episode.seasonNumber}E${episode.number}"
                         onWatch(WatchTarget.Episode(showId, episode.seasonNumber, episode.number), label)
@@ -827,6 +904,7 @@ private fun EpisodeList(
 private fun EpisodeRow(
     episode: Episode,
     progress: Float? = null,
+    isDownloaded: Boolean = false,
     onWatch: () -> Unit,
 ) {
     Row(
@@ -863,6 +941,32 @@ private fun EpisodeRow(
                     modifier = Modifier.size(14.dp),
                 )
             }
+            if (isDownloaded) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(4.dp)
+                        .background(Mocha.Crust.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 5.dp, vertical = 2.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Icon(
+                            PlayerIcons.Download,
+                            contentDescription = "Downloaded",
+                            tint = Mocha.Green,
+                            modifier = Modifier.size(10.dp),
+                        )
+                        Text(
+                            text = "Downloaded",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                            color = Mocha.Green,
+                        )
+                    }
+                }
+            }
             if (progress != null && progress > 0f) {
                 LinearProgressIndicator(
                     progress = { progress.coerceIn(0f, 1f) },
@@ -876,13 +980,32 @@ private fun EpisodeRow(
             }
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "${episode.number}. ${episode.name}",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = "${episode.number}. ${episode.name}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (isDownloaded) {
+                    Box(
+                        modifier = Modifier
+                            .background(Mocha.Green.copy(alpha = 0.18f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = "Downloaded",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                            color = Mocha.Green,
+                        )
+                    }
+                }
+            }
             val meta = listOfNotNull(
                 episode.airDate,
                 episode.runtime,

@@ -435,6 +435,10 @@ actual class TorrentDownloadManager actual constructor(
             }
         }
 
+        if (resolvedVideo != null && !File(resolvedVideo).exists()) {
+            resolvedVideo = null
+        }
+
         val updated = item.copy(
             videoFilePath = resolvedVideo,
             subtitleFilePath = resolvedSubtitle,

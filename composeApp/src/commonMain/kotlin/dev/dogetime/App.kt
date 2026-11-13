@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,6 +64,7 @@ import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import dev.dogetime.di.AppContainer
+import dev.dogetime.domain.DownloadStatus
 import dev.dogetime.domain.MediaItem
 import dev.dogetime.domain.MediaType
 import dev.dogetime.domain.WatchTarget
@@ -70,6 +72,8 @@ import dev.dogetime.navigation.Destination
 import dev.dogetime.navigation.Navigator
 import dev.dogetime.ui.browse.BrowseScreen
 import dev.dogetime.ui.browse.BrowseViewModel
+import dev.dogetime.ui.components.LocalDownloadedEpisodes
+import dev.dogetime.ui.components.LocalDownloadedMediaIds
 import dev.dogetime.ui.components.LocalNavAnimatedVisibilityScope
 import dev.dogetime.ui.components.LocalSharedTransitionScope
 import dev.dogetime.ui.details.DetailsScreen
@@ -211,6 +215,15 @@ fun App() {
         val container = remember { AppContainer() }
         val navigator = remember { Navigator() }
 
+        val completedDownloads by container.downloadManager.repository.observeAll().collectAsState(initial = emptyList())
+        val downloadedMediaIds = remember(completedDownloads) {
+            completedDownloads.filter { it.status == DownloadStatus.COMPLETED }.mapNotNull { it.mediaId }.toSet()
+        }
+        val downloadedEpisodes = remember(completedDownloads) {
+            completedDownloads.filter { it.status == DownloadStatus.COMPLETED && it.mediaId != null && it.season != null && it.episode != null }
+                .map { (it.mediaId!! to (it.season!! to it.episode!!)) }.toSet()
+        }
+
         // Tab ViewModels live here so switching tabs keeps their state.
         val homeViewModel = remember { HomeViewModel(container.repository, container.favorites, container.watchHistory) }
         val browseViewModel = remember { BrowseViewModel(container.repository) }
@@ -263,6 +276,8 @@ fun App() {
                                 CompositionLocalProvider(
                                     LocalSharedTransitionScope provides this@SharedTransitionLayout,
                                     LocalNavAnimatedVisibilityScope provides this@AnimatedContent,
+                                    LocalDownloadedMediaIds provides downloadedMediaIds,
+                                    LocalDownloadedEpisodes provides downloadedEpisodes,
                                 ) {
                                     val destModifier = screenModifier(targetDestination)
                                     when (targetDestination) {
@@ -314,7 +329,31 @@ fun App() {
                                             watchHistory = container.watchHistory,
                                             onBack = { navigator.back() },
                                             onWatch = { target, title, backdropUrl, mediaItem ->
-                                                navigator.open(Destination.Watch(target, title, backdropUrl, mediaItem))
+                                                val downloadedItem = when (target) {
+                                                    is WatchTarget.Movie -> {
+                                                        completedDownloads.firstOrNull {
+                                                            it.status == DownloadStatus.COMPLETED &&
+                                                                ((it.mediaId != null && it.mediaId == target.id) ||
+                                                                    (it.season == null && it.episode == null && it.title.equals(title, ignoreCase = true)))
+                                                        }
+                                                    }
+                                                    is WatchTarget.Episode -> {
+                                                        completedDownloads.firstOrNull {
+                                                            it.status == DownloadStatus.COMPLETED &&
+                                                                ((it.mediaId != null && it.mediaId == target.showId) || it.title.contains(title, ignoreCase = true)) &&
+                                                                it.season == target.season &&
+                                                                it.episode == target.episode
+                                                        }
+                                                    }
+                                                }
+                                                val playable = downloadedItem?.let {
+                                                    container.downloadManager.resolveOfflinePlayback(it)
+                                                }
+                                                if (playable?.videoFilePath != null) {
+                                                    navigator.open(Destination.OfflineWatch(playable))
+                                                } else {
+                                                    navigator.open(Destination.Watch(target, title, backdropUrl, mediaItem))
+                                                }
                                             },
                                             onOpen = openDetails,
                                             modifier = destModifier,

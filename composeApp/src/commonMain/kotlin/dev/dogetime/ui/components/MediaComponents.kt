@@ -43,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,14 +54,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.layout.ContentScale
@@ -68,12 +68,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import coil3.compose.AsyncImage
 import dev.dogetime.Mocha
 import dev.dogetime.domain.MediaItem
+import dev.dogetime.ui.player.PlayerIcons
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -81,6 +82,12 @@ val LocalSharedTransitionScope = compositionLocalOf<SharedTransitionScope?> { nu
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 val LocalNavAnimatedVisibilityScope = compositionLocalOf<AnimatedVisibilityScope?> { null }
+
+/** Set of media IDs that have completed offline downloads. */
+val LocalDownloadedMediaIds = compositionLocalOf<Set<Int>> { emptySet() }
+
+/** Set of (showId to (season to episode)) that have completed offline downloads. */
+val LocalDownloadedEpisodes = compositionLocalOf<Set<Pair<Int, Pair<Int, Int>>>> { emptySet() }
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -138,6 +145,7 @@ fun MediaCard(item: MediaItem, onClick: (MediaItem) -> Unit, modifier: Modifier 
         targetValue = if (isHovered) 1.06f else 1f,
         animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
     )
+    val isDownloaded = item.id in LocalDownloadedMediaIds.current
 
     Column(
         modifier = modifier
@@ -153,14 +161,43 @@ fun MediaCard(item: MediaItem, onClick: (MediaItem) -> Unit, modifier: Modifier 
                 indication = null,
             ) { onClick(item) },
     ) {
-        MediaPoster(
-            url = item.posterUrl,
-            title = item.title,
-            sharedKey = "poster-${item.type}-${item.id}",
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f),
-        )
+        ) {
+            MediaPoster(
+                url = item.posterUrl,
+                title = item.title,
+                sharedKey = "poster-${item.type}-${item.id}",
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (isDownloaded) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Mocha.Green.copy(alpha = 0.92f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Icon(
+                        imageVector = PlayerIcons.Download,
+                        contentDescription = "Downloaded",
+                        tint = Mocha.Crust,
+                        modifier = Modifier.size(10.dp),
+                    )
+                    Text(
+                        text = "Downloaded",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                        fontWeight = FontWeight.Bold,
+                        color = Mocha.Crust,
+                    )
+                }
+            }
+        }
         Spacer(Modifier.height(8.dp))
         Text(
             text = item.title,
@@ -191,6 +228,7 @@ fun BackdropCard(item: MediaItem, onClick: (MediaItem) -> Unit, modifier: Modifi
         targetValue = if (isHovered) 1.06f else 1f,
         animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
     )
+    val isDownloaded = item.id in LocalDownloadedMediaIds.current
 
     Box(
         modifier = modifier
@@ -217,6 +255,31 @@ fun BackdropCard(item: MediaItem, onClick: (MediaItem) -> Unit, modifier: Modifi
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
+        }
+        if (isDownloaded) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Mocha.Green.copy(alpha = 0.92f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Icon(
+                    imageVector = PlayerIcons.Download,
+                    contentDescription = "Downloaded",
+                    tint = Mocha.Crust,
+                    modifier = Modifier.size(11.dp),
+                )
+                Text(
+                    text = "Downloaded",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Mocha.Crust,
+                )
+            }
         }
         // Bottom gradient scrim for text readability.
         Box(
@@ -522,6 +585,28 @@ fun ContinueWatchingCard(
                 sharedKey = "poster-${item.mediaItem.type}-${item.mediaItem.id}",
                 modifier = Modifier.fillMaxSize(),
             )
+            val isItemDownloaded = if (item.season != null && item.episode != null) {
+                (item.mediaItem.id to (item.season to item.episode)) in LocalDownloadedEpisodes.current
+            } else {
+                item.mediaItem.id in LocalDownloadedMediaIds.current
+            }
+            if (isItemDownloaded) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Mocha.Green.copy(alpha = 0.92f))
+                        .padding(horizontal = 5.dp, vertical = 2.dp),
+                ) {
+                    Icon(
+                        imageVector = PlayerIcons.Download,
+                        contentDescription = "Downloaded",
+                        tint = Mocha.Crust,
+                        modifier = Modifier.size(10.dp),
+                    )
+                }
+            }
             // Episode badge for series / anime
             if (item.season != null && item.episode != null) {
                 Text(
