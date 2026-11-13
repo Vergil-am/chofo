@@ -80,13 +80,24 @@ class BrowseViewModel(private val repository: MediaRepository) : ViewModel() {
         job = scope.launch {
             val result = runForUiState { repository.browse(current.type, current.category, page) }
             _state.update { state ->
+                if (state.type != current.type || state.category != current.category) {
+                    return@update state
+                }
                 when (result) {
-                    is UiState.Success -> state.copy(
-                        items = if (append) state.items + result.data.items else result.data.items,
-                        page = result.data.page,
-                        totalPages = result.data.totalPages,
-                        isLoading = false,
-                    )
+                    is UiState.Success -> {
+                        val newItems = if (append) {
+                            val existing = state.items.map { "${it.type}-${it.id}" }.toSet()
+                            state.items + result.data.items.filter { "${it.type}-${it.id}" !in existing }
+                        } else {
+                            result.data.items.distinctBy { "${it.type}-${it.id}" }
+                        }
+                        state.copy(
+                            items = newItems,
+                            page = result.data.page,
+                            totalPages = result.data.totalPages,
+                            isLoading = false,
+                        )
+                    }
                     is UiState.Error -> state.copy(isLoading = false, error = result.message)
                     UiState.Loading -> state
                 }

@@ -5,6 +5,7 @@ import dev.dogetime.data.SubtitleDownloader
 import dev.dogetime.domain.DownloadItem
 import dev.dogetime.domain.DownloadStatus
 import dev.dogetime.domain.Subtitle
+import dev.dogetime.torrent.DownloadNotifier
 import dev.dogetime.torrent.torrentDownloadsDir
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -65,11 +66,23 @@ actual class TorrentDownloadManager actual constructor(
                         errorMessage = null,
                     ),
                 )
+                DownloadNotifier.notifyProgress(
+                    id = item.id,
+                    title = item.title,
+                    progress = 0f,
+                    downloadRate = 0L,
+                    peers = 0,
+                )
 
                 val session = Torrents.session()
                 val hash = try {
                     AddTorrentParams.parseMagnetUri(item.magnet.trim()).infoHashes.best
                 } catch (e: Exception) {
+                    DownloadNotifier.notifyFailed(
+                        id = item.id,
+                        title = item.title,
+                        error = "Invalid magnet link: ${e.message}",
+                    )
                     repository.upsert(
                         item.copy(
                             status = DownloadStatus.ERROR,
@@ -100,6 +113,13 @@ actual class TorrentDownloadManager actual constructor(
                                     peers = status.numPeers(),
                                 ),
                             )
+                            DownloadNotifier.notifyProgress(
+                                id = item.id,
+                                title = item.title,
+                                progress = 0f,
+                                downloadRate = 0L,
+                                peers = status.numPeers(),
+                            )
                             if (status.hasMetadata()) {
                                 found = current.torrentFile()?.takeIf { it.isValid }
                             }
@@ -111,6 +131,11 @@ actual class TorrentDownloadManager actual constructor(
 
                 val liveHandle = handle
                 if (info == null || liveHandle == null) {
+                    DownloadNotifier.notifyFailed(
+                        id = item.id,
+                        title = item.title,
+                        error = "Metadata timeout. No peers found for this torrent.",
+                    )
                     repository.upsert(
                         item.copy(
                             status = DownloadStatus.ERROR,
@@ -125,6 +150,11 @@ actual class TorrentDownloadManager actual constructor(
 
                 val videoIndex = Torrents.videoFileIndex(info, item.fileName, item.fileIndex, item.season, item.episode)
                 if (videoIndex == null) {
+                    DownloadNotifier.notifyFailed(
+                        id = item.id,
+                        title = item.title,
+                        error = "No video file found in this torrent for ${item.title}.",
+                    )
                     repository.upsert(
                         item.copy(
                             status = DownloadStatus.ERROR,
@@ -209,6 +239,7 @@ actual class TorrentDownloadManager actual constructor(
                                 subtitleLanguage = selectedSubtitle?.language,
                             ),
                         )
+                        DownloadNotifier.notifyCompleted(item.id, item.title)
                         break
                     } else {
                         repository.upsert(
@@ -223,6 +254,13 @@ actual class TorrentDownloadManager actual constructor(
                                 videoFilePath = targetVideoFile.absolutePath,
                             ),
                         )
+                        DownloadNotifier.notifyProgress(
+                            id = item.id,
+                            title = item.title,
+                            progress = fileProgressRatio,
+                            downloadRate = st.downloadRate().toLong(),
+                            peers = st.numPeers(),
+                        )
                     }
 
                     delay(POLL_INTERVAL_MS)
@@ -231,6 +269,11 @@ actual class TorrentDownloadManager actual constructor(
                 // Stopped or paused
                 throw e
             } catch (e: Exception) {
+                DownloadNotifier.notifyFailed(
+                    id = item.id,
+                    title = item.title,
+                    error = e.message ?: "Download failed",
+                )
                 repository.upsert(
                     item.copy(
                         status = DownloadStatus.ERROR,
@@ -246,6 +289,7 @@ actual class TorrentDownloadManager actual constructor(
     }
 
     actual fun pauseDownload(id: String) {
+        DownloadNotifier.cancel(id)
         activeJobs.remove(id)?.cancel()
         scope.launch {
             val item = repository.getById(id)
@@ -286,6 +330,7 @@ actual class TorrentDownloadManager actual constructor(
     }
 
     actual fun cancelDownload(id: String, deleteFiles: Boolean) {
+        DownloadNotifier.cancel(id)
         activeJobs.remove(id)?.cancel()
         val handle = activeHandles.remove(id)
 

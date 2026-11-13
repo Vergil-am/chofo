@@ -1,0 +1,74 @@
+name: Build Desktop (Windows & macOS)
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: Windows
+            os: windows-latest
+            artifact-name: chofo-windows-msi
+            artifact-path: composeApp/build/compose/binaries/main/msi/*.msi
+          - target: macOS
+            os: macos-latest
+            artifact-name: chofo-macos-dmg
+            artifact-path: composeApp/build/compose/binaries/main/dmg/*.dmg
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Set up WiX Toolset (Windows only)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          choco install wixtoolset --yes
+          echo "C:\Program Files (x86)\WiX Toolset v3.11\bin" >> $GITHUB_PATH
+
+      - name: Configure secrets.properties
+        shell: bash
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          SUBDL_API_KEY: ${{ secrets.SUBDL_API_KEY }}
+          OPEN_SUBTITLES_API_KEY: ${{ secrets.OPEN_SUBTITLES_API_KEY }}
+        run: |
+          if [ -f secrets.properties.example ]; then
+            cp secrets.properties.example secrets.properties
+          fi
+          # Inject repository secrets if provided in GitHub Settings -> Secrets
+          [ -n "$TMDB_API_KEY" ] && sed -i.bak "s|TMDB_API_KEY=.*|TMDB_API_KEY=$TMDB_API_KEY|" secrets.properties
+          [ -n "$SUBDL_API_KEY" ] && sed -i.bak "s|SUBDL_API_KEY=.*|SUBDL_API_KEY=$SUBDL_API_KEY|" secrets.properties
+          [ -n "$OPEN_SUBTITLES_API_KEY" ] && sed -i.bak "s|OPEN_SUBTITLES_API_KEY=.*|OPEN_SUBTITLES_API_KEY=$OPEN_SUBTITLES_API_KEY|" secrets.properties
+          rm -f secrets.properties.bak
+
+      - name: Grant execute permission for gradlew
+        if: runner.os != 'Windows'
+        run: chmod +x gradlew
+
+      - name: Build Desktop Distribution
+        run: ./gradlew :composeApp:packageDistributionForCurrentOS --stacktrace
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.artifact-path }}
+          if-no-files-found: error

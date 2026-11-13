@@ -586,6 +586,10 @@ fun MediaGrid(
     bottomInset: Dp = 0.dp,
     footer: LazyGridScope.() -> Unit = {},
 ) {
+    val uniqueItems = remember(mediaItems) {
+        mediaItems.distinctBy { "${it.type}-${it.id}" }
+    }
+
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 140.dp),
         state = gridState,
@@ -594,7 +598,7 @@ fun MediaGrid(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        items(mediaItems, key = { "${it.type}-${it.id}" }) { item ->
+        items(uniqueItems, key = { "${it.type}-${it.id}" }) { item ->
             MediaCard(item = item, onClick = onItemClick)
         }
         footer()

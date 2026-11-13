@@ -9,11 +9,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
@@ -26,9 +24,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
@@ -39,6 +37,7 @@ import dev.dogetime.domain.browseCategories
 import dev.dogetime.ui.components.ErrorBox
 import dev.dogetime.ui.components.MediaGrid
 import dev.dogetime.ui.components.dragToScroll
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 fun BrowseScreen(
@@ -48,14 +47,19 @@ fun BrowseScreen(
     bottomInset: Dp = 0.dp,
 ) {
     val state by viewModel.state.collectAsState()
-    val gridState = rememberLazyGridState()
+    val gridState = remember(state.type, state.category) { LazyGridState() }
 
-    // Fetch the next page once the user scrolls within six rows of the end.
-    val nearEnd by remember {
-        derivedStateOf { gridState.isNearEnd() }
-    }
-    LaunchedEffect(nearEnd, state.items.size) {
-        if (nearEnd) viewModel.loadMore()
+    // Fetch the next page once the user scrolls within six items of the end.
+    LaunchedEffect(gridState) {
+        snapshotFlow {
+            val total = gridState.layoutInfo.totalItemsCount
+            val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            total > 0 && lastVisible >= total - 6
+        }
+            .distinctUntilChanged()
+            .collect { nearEnd ->
+                if (nearEnd) viewModel.loadMore()
+            }
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -114,7 +118,7 @@ fun BrowseScreen(
                     bottomInset = bottomInset,
                     footer = {
                         if (state.isLoading) {
-                            item(span = { GridItemSpan(maxLineSpan) }) {
+                            item(key = "loading_footer", span = { GridItemSpan(maxLineSpan) }) {
                                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                                     CircularProgressIndicator()
                                 }
@@ -131,9 +135,4 @@ fun BrowseScreen(
             }
         }
     }
-}
-
-private fun LazyGridState.isNearEnd(): Boolean {
-    val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-    return lastVisible >= layoutInfo.totalItemsCount - 6
 }
