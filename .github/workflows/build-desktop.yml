@@ -43,6 +43,27 @@ jobs:
           choco install wixtoolset --yes
           echo "C:\Program Files (x86)\WiX Toolset v3.11\bin" >> $GITHUB_PATH
 
+      - name: Download and bundle libmpv (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p composeApp/app-resources/windows
+          echo "Resolving latest mpv-dev-x86_64 download..."
+          MPV_URL=$(curl -sL https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest \
+            | grep "browser_download_url.*mpv-dev-x86_64-[0-9]" \
+            | head -n 1 \
+            | cut -d '"' -f 4)
+          if [ -z "$MPV_URL" ]; then
+            MPV_URL="https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261111/mpv-dev-x86_64-20261111-git-bcde6b93cc.7z"
+          fi
+          echo "Downloading $MPV_URL..."
+          curl -sL "$MPV_URL" -o mpv-dev.7z
+          7z e mpv-dev.7z -ocomposeApp/app-resources/windows/ "libmpv-2.dll" -r -y
+          cp composeApp/app-resources/windows/libmpv-2.dll composeApp/app-resources/windows/mpv-2.dll
+          rm -f mpv-dev.7z
+          echo "Bundled libraries in composeApp/app-resources/windows:"
+          ls -lh composeApp/app-resources/windows/
+
       - name: Configure secrets.properties
         shell: bash
         env:

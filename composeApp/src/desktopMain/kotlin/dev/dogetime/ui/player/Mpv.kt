@@ -4,8 +4,11 @@ import com.sun.jna.Callback
 import com.sun.jna.Library
 import com.sun.jna.Memory
 import com.sun.jna.Native
+import com.sun.jna.NativeLibrary
 import com.sun.jna.Pointer
 import com.sun.jna.ptr.PointerByReference
+import dev.dogetime.core.PlayerLog
+import java.io.File
 
 /**
  * The parts of libmpv's C API ([client.h](https://github.com/mpv-player/mpv/blob/master/include/mpv/client.h)
@@ -73,7 +76,60 @@ internal object Mpv {
     val library: Result<MpvLibrary> by lazy {
         runCatching {
             useCNumericLocale()
-            val names = listOf("mpv", "mpv-2", "libmpv-2", "libmpv.so.2", "libmpv.so.1")
+
+            val resourcesDir = System.getProperty("compose.application.resources.dir")
+            val appDir = runCatching {
+                File(Mpv::class.java.protectionDomain.codeSource.location.toURI()).parentFile
+            }.getOrNull()
+            val userDir = File(System.getProperty("user.dir"))
+
+            val searchDirs = listOfNotNull(
+                resourcesDir?.let { File(it) },
+                appDir,
+                appDir?.parentFile,
+                appDir?.resolve("resources"),
+                userDir,
+                userDir.resolve("resources"),
+                userDir.resolve("app/resources"),
+                // Common Homebrew / Mac locations
+                File("/opt/homebrew/lib"),
+                File("/usr/local/lib"),
+            ).filter { it.isDirectory && it.exists() }
+
+            // Register search paths with JNA
+            for (dir in searchDirs) {
+                for (name in listOf("mpv-2", "libmpv-2", "mpv", "libmpv")) {
+                    runCatching { NativeLibrary.addSearchPath(name, dir.absolutePath) }
+                }
+            }
+
+            // 1. Try explicit bundled library files directly
+            val candidateFileNames = listOf(
+                "mpv-2.dll",
+                "libmpv-2.dll",
+                "mpv.dll",
+                "libmpv.dylib",
+                "libmpv.2.dylib",
+                "libmpv.so.2",
+                "libmpv.so.1",
+                "libmpv.so",
+            )
+            for (dir in searchDirs) {
+                for (fileName in candidateFileNames) {
+                    val candidate = dir.resolve(fileName)
+                    if (candidate.isFile && candidate.exists()) {
+                        try {
+                            PlayerLog.log("Attempting to load bundled libmpv from: ${candidate.absolutePath}")
+                            return@runCatching Native.load(candidate.absolutePath, MpvLibrary::class.java, loadOptions())
+                        } catch (e: UnsatisfiedLinkError) {
+                            PlayerLog.log("Failed loading libmpv from ${candidate.absolutePath}: ${e.message}")
+                        }
+                    }
+                }
+            }
+
+            // 2. Standard system library lookup
+            val names = listOf("mpv-2", "libmpv-2", "mpv", "libmpv", "libmpv.so.2", "libmpv.so.1")
             var lastError: Throwable? = null
             for (name in names) {
                 try {

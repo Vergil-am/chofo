@@ -10,3 +10,9 @@ iosApp/iosApp.xcodeproj/xcuserdata/
 iosApp/iosApp.xcodeproj/project.xcworkspace/xcuserdata/
 .kotlin/
 **/build/
+
+# Native libraries for packaging (downloaded by CI or setup scripts)
+composeApp/app-resources/**/*.dll
+composeApp/app-resources/**/*.dylib
+composeApp/app-resources/**/*.so
+*.dll

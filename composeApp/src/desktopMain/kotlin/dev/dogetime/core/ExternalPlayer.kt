@@ -42,6 +42,11 @@ actual object ExternalPlayer {
 
 private fun findExecutable(name: String): File? {
     val fileName = if (System.getProperty("os.name").startsWith("Windows")) "$name.exe" else name
+    val resourcesDir = System.getProperty("compose.application.resources.dir")
+    if (resourcesDir != null) {
+        val file = File(resourcesDir, fileName)
+        if (file.isFile && file.canExecute()) return file
+    }
     return System.getenv("PATH").orEmpty()
         .split(File.pathSeparator)
         .map { File(it, fileName) }
