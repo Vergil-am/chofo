@@ -218,7 +218,9 @@ fun App() {
         val appUiScope = rememberCoroutineScope()
         var offlineLookup by remember { mutableStateOf<Job?>(null) }
 
-        val completedDownloads by container.downloadManager.repository.observeAll().collectAsState(initial = emptyList())
+        // remember: observeAll() makes a new Flow each call, and collectAsState restarts on a new one.
+        val completedDownloads by remember { container.downloadManager.repository.observeAll() }
+            .collectAsState(initial = emptyList())
         val downloadedMediaIds = remember(completedDownloads) {
             completedDownloads.filter { it.status == DownloadStatus.COMPLETED }.mapNotNull { it.mediaId }.toSet()
         }

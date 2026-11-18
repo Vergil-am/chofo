@@ -61,8 +61,12 @@ fun DownloadsScreen(
     watchHistory: WatchHistoryRepository? = null,
     bottomInset: Dp = 0.dp,
 ) {
-    val downloads by downloadManager.repository.observeAll().collectAsState(initial = emptyList())
-    val watchHistoryItems by (watchHistory?.observeAll() ?: flowOf(emptyList())).collectAsState(initial = emptyList())
+    // remember: each observeAll() call makes a new Flow, and collectAsState restarts (a fresh DB
+    // query) whenever it gets a new one, which would be every recomposition.
+    val downloads by remember(downloadManager) { downloadManager.repository.observeAll() }
+        .collectAsState(initial = emptyList())
+    val watchHistoryItems by remember(watchHistory) { watchHistory?.observeAll() ?: flowOf(emptyList()) }
+        .collectAsState(initial = emptyList())
     val historyMap = remember(watchHistoryItems) {
         watchHistoryItems.associateBy { it.watchKey }
     }
