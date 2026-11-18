@@ -149,7 +149,10 @@ fun WatchScreen(
                         val item = DownloadItem(
                             id = itemId,
                             title = title,
-                            mediaType = when (target) {
+                            // The media's own type, so anime (whose id is a Kitsu id) is saved as
+                            // Anime and shares watch history with streaming instead of landing
+                            // under a TV show or movie that happens to have the same TMDB id.
+                            mediaType = mediaItem?.type ?: when (target) {
                                 is WatchTarget.Movie -> MediaType.Movie
                                 is WatchTarget.Episode -> MediaType.Tv
                             },

@@ -64,8 +64,10 @@ import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import dev.dogetime.di.AppContainer
+import dev.dogetime.domain.DownloadItem
 import dev.dogetime.domain.DownloadStatus
 import dev.dogetime.domain.MediaItem
+import dev.dogetime.domain.MediaType
 import dev.dogetime.domain.WatchTarget
 import dev.dogetime.navigation.Destination
 import dev.dogetime.navigation.Navigator
@@ -338,14 +340,14 @@ fun App() {
                                                     is WatchTarget.Movie -> {
                                                         completedDownloads.firstOrNull {
                                                             it.status == DownloadStatus.COMPLETED &&
-                                                                ((it.mediaId != null && it.mediaId == target.id) ||
+                                                                (it.isFor(mediaItem?.type, target.id) ||
                                                                     (it.season == null && it.episode == null && it.title.equals(title, ignoreCase = true)))
                                                         }
                                                     }
                                                     is WatchTarget.Episode -> {
                                                         completedDownloads.firstOrNull {
                                                             it.status == DownloadStatus.COMPLETED &&
-                                                                ((it.mediaId != null && it.mediaId == target.showId) || it.title.contains(title, ignoreCase = true)) &&
+                                                                (it.isFor(mediaItem?.type, target.showId) || it.title.contains(title, ignoreCase = true)) &&
                                                                 it.season == target.season &&
                                                                 it.episode == target.episode
                                                         }
@@ -555,3 +557,10 @@ private fun NavBarTabItem(
         )
     }
 }
+
+/**
+ * Whether this download is of the title with [id]. The type has to match too when both sides know
+ * it: anime ids come from Kitsu and TV and movie ids from TMDB, so the same number can be two titles.
+ */
+private fun DownloadItem.isFor(type: MediaType?, id: Int): Boolean =
+    mediaId == id && (type == null || mediaType == null || mediaType == type)
