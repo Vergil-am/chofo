@@ -18,16 +18,36 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.libtorrent4j.AddTorrentParams
+import org.libtorrent4j.AlertListener
+import org.libtorrent4j.SessionManager
+import org.libtorrent4j.Vectors
+import org.libtorrent4j.alerts.Alert
+import org.libtorrent4j.alerts.AlertType
+import org.libtorrent4j.alerts.SaveResumeDataAlert
+import org.libtorrent4j.swig.error_code
+import org.libtorrent4j.swig.libtorrent
 import org.libtorrent4j.Priority
 import org.libtorrent4j.SessionHandle
 import org.libtorrent4j.TorrentFlags
 import org.libtorrent4j.TorrentHandle
 import org.libtorrent4j.TorrentInfo
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentHashMap
 
 private const val METADATA_TIMEOUT_MS = 60_000L
 private const val POLL_INTERVAL_MS = 1_000L
+
+/** How often, in progress polls, libtorrent's resume data is saved while downloading. */
+private const val RESUME_SAVE_EVERY_POLLS = 15
+
+/**
+ * libtorrent's resume data (the torrent's metadata plus which pieces are done), kept in each
+ * torrent's download folder so a restarted download needs no peers for metadata and no full
+ * re-check of the file. Deleted with the folder when the download is cancelled.
+ */
+private const val RESUME_FILE_NAME = ".chofo.resume"
 
 actual class TorrentDownloadManager actual constructor(
     actual val repository: DownloadRepository,
@@ -42,14 +62,31 @@ actual class TorrentDownloadManager actual constructor(
     // Track active wanted file indices per torrent infoHash to support multiple episodes from the same torrent
     private val wantedFilesByHash = ConcurrentHashMap<String, MutableSet<Int>>()
 
+    /** Resume-data file per torrent info hash, for the alert listener to write to. */
+    private val resumeFiles = ConcurrentHashMap<String, File>()
+    private var listenerSession: SessionManager? = null
+
     init {
-        // Warm up / ensure engine readiness
+        // Downloads that were running when the app was closed or killed carry on where they left off.
         scope.launch {
-            delay(1000)
-            runCatching {
-                repository.getById("")
-            }
+            runCatching { repository.getByStatus(DownloadStatus.DOWNLOADING) }
+                .getOrDefault(emptyList())
+                .forEach { startDownload(it, null) }
         }
+    }
+
+    /** Writes resume data to disk whenever libtorrent hands it over after [TorrentHandle.saveResumeData]. */
+    @Synchronized
+    private fun ensureResumeListener(session: SessionManager) {
+        if (listenerSession === session) return
+        session.addListener(resumeDataWriter { hashHex -> resumeFiles[hashHex] })
+        listenerSession = session
+    }
+
+    /** Asks libtorrent for fresh resume data; it arrives asynchronously in the listener above. */
+    private fun requestResumeSave(handle: TorrentHandle?) {
+        if (handle == null || !handle.isValid) return
+        runCatching { handle.saveResumeData(TorrentHandle.SAVE_INFO_DICT) }
     }
 
     actual fun startDownload(
@@ -96,8 +133,14 @@ actual class TorrentDownloadManager actual constructor(
                 val hashHex = hash.toHex()
                 val saveDir = File(torrentDownloadsDir(), hashHex).apply { mkdirs() }
 
-                // Download with AUTO_MANAGED flag for swarm piece gathering
-                session.download(item.magnet.trim(), saveDir, TorrentFlags.AUTO_MANAGED)
+                val resumeFile = File(saveDir, RESUME_FILE_NAME)
+                resumeFiles[hashHex] = resumeFile
+                ensureResumeListener(session)
+
+                // Another episode of the same torrent may already have it in the session.
+                if (session.find(hash)?.isValid != true) {
+                    addTorrent(session, item.magnet.trim(), saveDir, resumeFile)
+                }
 
                 var handle: TorrentHandle? = null
                 val info = withTimeoutOrNull(METADATA_TIMEOUT_MS) {
@@ -148,6 +191,8 @@ actual class TorrentDownloadManager actual constructor(
 
                 val targetHandle = liveHandle
                 activeHandles[item.id] = targetHandle
+                // pauseDownload() may have paused the handle; this download wants it running.
+                targetHandle.resume()
 
                 val videoIndex = Torrents.videoFileIndex(info, item.fileName, item.fileIndex, item.season, item.episode)
                 if (videoIndex == null) {
@@ -190,7 +235,11 @@ actual class TorrentDownloadManager actual constructor(
                 updatePriorities()
 
                 // Track download progress for this specific file
+                var polls = 0
                 while (isActive && targetHandle.isValid) {
+                    if (++polls % RESUME_SAVE_EVERY_POLLS == 0 && targetHandle.needSaveResumeData()) {
+                        requestResumeSave(targetHandle)
+                    }
                     val st = targetHandle.status()
                     val fileProgressArray = runCatching { targetHandle.fileProgress() }.getOrNull()
                     val fileDone = (fileProgressArray?.getOrNull(videoIndex) ?: 0L).coerceIn(0L, targetFileSize)
@@ -305,6 +354,7 @@ actual class TorrentDownloadManager actual constructor(
                     wantedSet?.remove(item.fileIndex)
                 }
                 val handle = activeHandles[id]
+                requestResumeSave(handle)
                 if (wantedSet.isNullOrEmpty()) {
                     handle?.pause()
                 } else if (handle != null && handle.isValid) {
@@ -458,4 +508,60 @@ actual class TorrentDownloadManager actual constructor(
 
         updated
     }
+
+    /**
+     * Adds the torrent from its saved resume data when there is some, so metadata comes from disk
+     * and finished pieces aren't re-checked. Falls back to the magnet link, which needs peers.
+     */
+    private fun addTorrent(session: SessionManager, magnet: String, saveDir: File, resumeFile: File) {
+        val savedInfo = readSavedTorrentInfo(resumeFile)
+        if (savedInfo != null) {
+            val added = runCatching {
+                // Everything starts ignored; the wanted file is switched on once the handle is found.
+                session.download(
+                    savedInfo,
+                    saveDir,
+                    resumeFile,
+                    Priority.array(Priority.IGNORE, savedInfo.numFiles()),
+                    null,
+                    TorrentFlags.AUTO_MANAGED,
+                )
+            }.isSuccess
+            if (added) return
+            resumeFile.delete()
+        }
+        session.download(magnet, saveDir, TorrentFlags.AUTO_MANAGED)
+    }
+}
+
+/**
+ * Saves each torrent's resume data, as libtorrent delivers it, to the file [fileFor] returns for
+ * its info hash (hex). Torrents with no file, like ones only being streamed, are skipped.
+ */
+internal fun resumeDataWriter(fileFor: (String) -> File?): AlertListener = object : AlertListener {
+    override fun types(): IntArray = intArrayOf(AlertType.SAVE_RESUME_DATA.swig())
+
+    override fun alert(alert: Alert<*>) {
+        val resumeAlert = alert as? SaveResumeDataAlert ?: return
+        runCatching {
+            val file = fileFor(resumeAlert.handle().infoHash().toHex()) ?: return
+            writeAtomically(file, AddTorrentParams.writeResumeDataBuf(resumeAlert.params()))
+        }
+    }
+}
+
+/** The torrent metadata inside a resume-data file, or null if there is none or it's unreadable. */
+internal fun readSavedTorrentInfo(file: File): TorrentInfo? = runCatching {
+    if (!file.isFile) return null
+    val error = error_code()
+    val params = libtorrent.read_resume_data_ex(Vectors.bytes2byte_vector(file.readBytes()), error)
+    if (error.value() != 0) return null
+    AddTorrentParams(params).torrentInfo?.takeIf { it.isValid }
+}.getOrNull()
+
+/** Written next to the target and moved into place, so a kill mid-write never leaves half a file. */
+internal fun writeAtomically(file: File, bytes: ByteArray) {
+    val temp = File(file.parentFile, "${file.name}.tmp")
+    temp.writeBytes(bytes)
+    Files.move(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
 }

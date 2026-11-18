@@ -21,6 +21,9 @@ class DownloadRepository(private val dao: DownloadDao) {
     suspend fun getByInfoHash(infoHash: String): List<DownloadItem> =
         dao.getByInfoHash(infoHash).map { it.toDomain() }
 
+    suspend fun getByStatus(status: DownloadStatus): List<DownloadItem> =
+        dao.getByStatus(status.name).map { it.toDomain() }
+
     suspend fun upsert(item: DownloadItem) {
         dao.upsert(DownloadEntity.fromDomain(item))
     }
