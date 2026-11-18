@@ -18,7 +18,6 @@ import dev.dogetime.domain.MediaItem
 import dev.dogetime.domain.MediaType
 import dev.dogetime.domain.WatchTarget
 import dev.dogetime.ui.player.VideoPlayerScreen
-import kotlin.math.abs
 
 /**
  * Plays a downloaded [item]. Its file paths are checked against the disk once, off the main
@@ -45,33 +44,32 @@ fun OfflinePlayerScreen(
         return
     }
 
+    // Watch history is keyed by TMDB id. A download without one (e.g. added from a bare magnet)
+    // isn't tracked, rather than saved under a made-up id that could collide with a real title.
+    val mediaId = resolved.mediaId
     VideoPlayerScreen(
         stream = CapturedStream(url = resolved.videoFilePath ?: "", headers = emptyMap()),
         title = resolved.title,
         onBack = onBack,
         onOpenExternal = null,
-        target = resolved.watchTarget(),
-        mediaItem = resolved.toMediaItem(),
-        watchHistory = watchHistory,
+        target = mediaId?.let { resolved.watchTarget(it) },
+        mediaItem = mediaId?.let { resolved.toMediaItem(it) },
+        watchHistory = watchHistory.takeIf { mediaId != null },
         initialSubtitlePath = resolved.subtitleFilePath,
         initialSubtitleLanguage = resolved.subtitleLanguage,
         modifier = modifier,
     )
 }
 
-/** The TMDB id, or a stand-in derived from the info hash for downloads that have none. */
-private fun DownloadItem.resolvedId(): Int =
-    mediaId ?: infoHash.hashCode().let { if (it == Int.MIN_VALUE) 0 else abs(it) }
-
-private fun DownloadItem.watchTarget(): WatchTarget =
+private fun DownloadItem.watchTarget(mediaId: Int): WatchTarget =
     if (season != null && episode != null) {
-        WatchTarget.Episode(showId = resolvedId(), season = season, episode = episode)
+        WatchTarget.Episode(showId = mediaId, season = season, episode = episode)
     } else {
-        WatchTarget.Movie(id = resolvedId())
+        WatchTarget.Movie(id = mediaId)
     }
 
-private fun DownloadItem.toMediaItem(): MediaItem = MediaItem(
-    id = resolvedId(),
+private fun DownloadItem.toMediaItem(mediaId: Int): MediaItem = MediaItem(
+    id = mediaId,
     type = mediaType ?: if (season != null) MediaType.Tv else MediaType.Movie,
     title = title,
     overview = "",

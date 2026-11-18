@@ -49,6 +49,9 @@ private const val RESUME_SAVE_EVERY_POLLS = 15
  */
 private const val RESUME_FILE_NAME = ".chofo.resume"
 
+/** Subtitle files inside a torrent are always downloaded alongside the wanted videos. */
+private val SUBTITLE_EXTENSIONS = listOf(".srt", ".vtt", ".ass")
+
 actual class TorrentDownloadManager actual constructor(
     actual val repository: DownloadRepository,
     private val subtitleDownloader: SubtitleDownloader,
@@ -113,6 +116,12 @@ actual class TorrentDownloadManager actual constructor(
                 return true
             }
 
+            /** Marks this download failed, in the database and the notification. */
+            suspend fun fail(message: String) {
+                DownloadNotifier.notifyFailed(id = item.id, title = item.title, error = message)
+                repository.upsert(latest().copy(status = DownloadStatus.ERROR, errorMessage = message))
+            }
+
             try {
                 repository.upsert(
                     latest().copy(
@@ -132,17 +141,7 @@ actual class TorrentDownloadManager actual constructor(
                 val hash = try {
                     AddTorrentParams.parseMagnetUri(item.magnet.trim()).infoHashes.best
                 } catch (e: Exception) {
-                    DownloadNotifier.notifyFailed(
-                        id = item.id,
-                        title = item.title,
-                        error = "Invalid magnet link: ${e.message}",
-                    )
-                    repository.upsert(
-                        latest().copy(
-                            status = DownloadStatus.ERROR,
-                            errorMessage = "Invalid magnet link: ${e.message}",
-                        ),
-                    )
+                    fail("Invalid magnet link: ${e.message}")
                     return@launch
                 }
 
@@ -191,17 +190,7 @@ actual class TorrentDownloadManager actual constructor(
 
                 val liveHandle = handle
                 if (info == null || liveHandle == null) {
-                    DownloadNotifier.notifyFailed(
-                        id = item.id,
-                        title = item.title,
-                        error = "Metadata timeout. No peers found for this torrent.",
-                    )
-                    repository.upsert(
-                        latest().copy(
-                            status = DownloadStatus.ERROR,
-                            errorMessage = "Metadata timeout. No peers found for this torrent.",
-                        ),
-                    )
+                    fail("Metadata timeout. No peers found for this torrent.")
                     return@launch
                 }
 
@@ -212,17 +201,7 @@ actual class TorrentDownloadManager actual constructor(
 
                 val videoIndex = Torrents.videoFileIndex(info, item.fileName, item.fileIndex, item.season, item.episode)
                 if (videoIndex == null) {
-                    DownloadNotifier.notifyFailed(
-                        id = item.id,
-                        title = item.title,
-                        error = "No video file found in this torrent for ${item.title}.",
-                    )
-                    repository.upsert(
-                        latest().copy(
-                            status = DownloadStatus.ERROR,
-                            errorMessage = "No video file found in this torrent for ${item.title}.",
-                        ),
-                    )
+                    fail("No video file found in this torrent for ${item.title}.")
                     return@launch
                 }
 
@@ -235,20 +214,7 @@ actual class TorrentDownloadManager actual constructor(
                 val wantedSet = wantedFilesByHash.getOrPut(hashHex) { ConcurrentHashMap.newKeySet() }
                 wantedSet.add(videoIndex)
 
-                // Update torrent file priorities across all active downloads for this hash
-                fun updatePriorities() {
-                    val activeWanted = wantedFilesByHash[hashHex].orEmpty()
-                    val priorities = Array(info.numFiles()) { idx ->
-                        val name = files.fileName(idx).lowercase()
-                        when {
-                            idx in activeWanted -> Priority.DEFAULT
-                            name.endsWith(".srt") || name.endsWith(".vtt") || name.endsWith(".ass") -> Priority.DEFAULT
-                            else -> Priority.IGNORE
-                        }
-                    }
-                    targetHandle.prioritizeFiles(priorities)
-                }
-                updatePriorities()
+                applyPriorities(targetHandle, hashHex)
 
                 // Fetch the picked subtitle now rather than at the end: it's a few KB, the provider's
                 // link may expire before a long download finishes, and once it's on disk and in the
@@ -300,7 +266,7 @@ actual class TorrentDownloadManager actual constructor(
 
                         // Remove this file from wanted set since it is completed
                         wantedSet.remove(videoIndex)
-                        updatePriorities()
+                        applyPriorities(targetHandle, hashHex)
 
                         repository.upsert(
                             latest().copy(
@@ -344,17 +310,7 @@ actual class TorrentDownloadManager actual constructor(
                 // Stopped or paused
                 throw e
             } catch (e: Exception) {
-                DownloadNotifier.notifyFailed(
-                    id = item.id,
-                    title = item.title,
-                    error = e.message ?: "Download failed",
-                )
-                repository.upsert(
-                    latest().copy(
-                        status = DownloadStatus.ERROR,
-                        errorMessage = e.message ?: "Download failed",
-                    ),
-                )
+                fail(e.message ?: "Download failed")
             } finally {
                 activeJobs.remove(item.id)
             }
@@ -378,20 +334,8 @@ actual class TorrentDownloadManager actual constructor(
                 requestResumeSave(handle)
                 if (wantedSet.isNullOrEmpty()) {
                     handle?.pause()
-                } else if (handle != null && handle.isValid) {
-                    val info = handle.torrentFile()
-                    if (info != null && info.isValid) {
-                        val files = info.files()
-                        val priorities = Array(info.numFiles()) { idx ->
-                            val name = files.fileName(idx).lowercase()
-                            when {
-                                idx in wantedSet -> Priority.DEFAULT
-                                name.endsWith(".srt") || name.endsWith(".vtt") || name.endsWith(".ass") -> Priority.DEFAULT
-                                else -> Priority.IGNORE
-                            }
-                        }
-                        handle.prioritizeFiles(priorities)
-                    }
+                } else if (handle != null) {
+                    applyPriorities(handle, hashHex)
                 }
             }
             repository.updateStatus(id, DownloadStatus.PAUSED)
@@ -441,21 +385,8 @@ actual class TorrentDownloadManager actual constructor(
                             session?.remove(handle)
                         }
                     }
-                } else if (handle != null && handle.isValid) {
-                    val info = handle.torrentFile()
-                    if (info != null && info.isValid) {
-                        val files = info.files()
-                        val activeWanted = wantedSet.orEmpty()
-                        val priorities = Array(info.numFiles()) { idx ->
-                            val name = files.fileName(idx).lowercase()
-                            when {
-                                idx in activeWanted -> Priority.DEFAULT
-                                name.endsWith(".srt") || name.endsWith(".vtt") || name.endsWith(".ass") -> Priority.DEFAULT
-                                else -> Priority.IGNORE
-                            }
-                        }
-                        handle.prioritizeFiles(priorities)
-                    }
+                } else if (handle != null) {
+                    applyPriorities(handle, hashHex)
                 }
             }
             repository.deleteById(id)
@@ -523,6 +454,26 @@ actual class TorrentDownloadManager actual constructor(
         }
 
         updated
+    }
+
+    /**
+     * Sets [handle]'s file priorities from what every download of this torrent still wants: those
+     * videos plus any subtitle files, everything else skipped. Several episodes can share a torrent.
+     */
+    private fun applyPriorities(handle: TorrentHandle, hashHex: String) {
+        if (!handle.isValid) return
+        val info = handle.torrentFile()?.takeIf { it.isValid } ?: return
+        val wanted = wantedFilesByHash[hashHex].orEmpty()
+        val files = info.files()
+        val priorities = Array(info.numFiles()) { idx ->
+            val name = files.fileName(idx).lowercase()
+            when {
+                idx in wanted -> Priority.DEFAULT
+                SUBTITLE_EXTENSIONS.any { name.endsWith(it) } -> Priority.DEFAULT
+                else -> Priority.IGNORE
+            }
+        }
+        handle.prioritizeFiles(priorities)
     }
 
     /**

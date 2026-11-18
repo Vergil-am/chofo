@@ -36,6 +36,22 @@ val generateSecrets = tasks.register("generateSecrets") {
     }
 }
 
+// The app version comes from gradle.properties (app.version) and becomes BuildInfo.VERSION.
+val appVersion = providers.gradleProperty("app.version").get()
+val generatedBuildInfoDir = layout.buildDirectory.dir("generated/buildinfo/commonMain/kotlin")
+
+val generateBuildInfo = tasks.register("generateBuildInfo") {
+    inputs.property("version", appVersion)
+    outputs.dir(generatedBuildInfoDir)
+    doLast {
+        val packageDir = generatedBuildInfoDir.get().asFile.resolve("dev/dogetime")
+        packageDir.mkdirs()
+        packageDir.resolve("BuildInfo.kt").writeText(
+            "package dev.dogetime\n\nobject BuildInfo {\n    const val VERSION = \"${appVersion.escapeForKotlin()}\"\n}\n",
+        )
+    }
+}
+
 kotlin {
     android {
         namespace = "dev.dogetime.shared"
@@ -70,6 +86,7 @@ kotlin {
 
     // Registering the task (not just its folder) makes every task that reads these sources run it first.
     sourceSets.getByName("commonMain").kotlin.srcDir(generateSecrets)
+    sourceSets.getByName("commonMain").kotlin.srcDir(generateBuildInfo)
 
     sourceSets {
         commonMain.dependencies {
@@ -150,7 +167,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "Chofo"
-            packageVersion = "0.1.1"
+            packageVersion = appVersion
             appResourcesRootDir.set(project.layout.projectDirectory.dir("app-resources"))
         }
     }

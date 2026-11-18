@@ -141,7 +141,7 @@ fun DownloadsScreen(
                 items(downloads, key = { it.id }) { item ->
                     DownloadCard(
                         item = item,
-                        watchProgress = historyMap[item.watchKey()],
+                        watchProgress = item.watchKey()?.let { historyMap[it] },
                         onPlay = { onPlayDownload(item) },
                         onPause = { downloadManager.pauseDownload(item.id) },
                         onResume = { downloadManager.resumeDownload(item.id) },
@@ -467,8 +467,9 @@ private fun DownloadCard(
     }
 }
 
-private fun DownloadItem.watchKey(): String {
-    val resolvedId = mediaId ?: (infoHash.hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) })
+/** The watch-history key for this download, or null when it has no TMDB id (and so no history). */
+private fun DownloadItem.watchKey(): String? {
+    val resolvedId = mediaId ?: return null
     val resolvedType = mediaType ?: if (season != null) MediaType.Tv else MediaType.Movie
     return if (season != null && episode != null) {
         "${resolvedType.name}:$resolvedId:$season:$episode"

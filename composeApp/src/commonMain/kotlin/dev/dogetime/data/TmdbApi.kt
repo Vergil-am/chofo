@@ -4,6 +4,7 @@ import dev.dogetime.Secrets
 import dev.dogetime.domain.MediaType
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
@@ -15,6 +16,12 @@ private const val API_BASE_URL = "https://api.themoviedb.org/3/"
 
 fun createHttpClient(): HttpClient = HttpClient {
     expectSuccess = true
+    // Without these a stalled provider leaves a screen loading forever. There's no overall request
+    // limit, so a slow but steady response still finishes; only a connection that stops moving fails.
+    install(HttpTimeout) {
+        connectTimeoutMillis = 15_000
+        socketTimeoutMillis = 30_000
+    }
     install(ContentNegotiation) {
         json(Json { ignoreUnknownKeys = true })
     }
