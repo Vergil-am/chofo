@@ -17,11 +17,17 @@ import dev.dogetime.data.WatchHistoryRepository
 import dev.dogetime.data.YtsSubsApi
 import dev.dogetime.data.createHttpClient
 import dev.dogetime.data.local.createDatabase
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 /** Manual dependency container. Created once in App() and passed down to the screens. */
 class AppContainer {
     private val httpClient = createHttpClient()
     private val database = createDatabase()
+
+    /** For work that must finish even after the screen that started it is gone. */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val kitsuMapping: KitsuMappingRepository = KitsuMappingRepository(httpClient).apply { warmUp() }
     val kitsuApi: KitsuApi = KitsuApi(httpClient)
@@ -32,7 +38,7 @@ class AppContainer {
     val ytsSubs: YtsSubsApi = YtsSubsApi(httpClient, kitsuMapping)
     val stremioSubtitles: StremioSubtitlesApi = StremioSubtitlesApi(httpClient, kitsuMapping)
     val favorites: FavoritesRepository = FavoritesRepository(database.favoriteDao())
-    val watchHistory: WatchHistoryRepository = WatchHistoryRepository(database.watchHistoryDao())
+    val watchHistory: WatchHistoryRepository = WatchHistoryRepository(database.watchHistoryDao(), appScope)
     val updateChecker: UpdateChecker = UpdateChecker(httpClient)
 
     val downloadRepository: DownloadRepository = DownloadRepository(database.downloadDao())

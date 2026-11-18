@@ -314,23 +314,21 @@ private fun PlayerContent(
         }
     }
 
-    // Save final progress on exit.
+    // Save final progress on exit. The position is read now, before the controller is released,
+    // and saved on the app scope: `scope` is cancelled with this composition, so a coroutine
+    // launched on it here would never run.
     DisposableEffect(target, mediaItem, watchHistory, controller) {
         onDispose {
             if (target != null && mediaItem != null && watchHistory != null) {
                 val dur = controller.durationMs
                 val pos = if (controller.isEnded && dur > 0) dur else controller.positionMs
                 if (pos > 0) {
-                    scope.launch {
-                        try {
-                            watchHistory.saveProgress(
-                                target = target,
-                                mediaItem = mediaItem,
-                                positionMs = pos,
-                                durationMs = dur,
-                            )
-                        } catch (_: Exception) {}
-                    }
+                    watchHistory.saveProgressDetached(
+                        target = target,
+                        mediaItem = mediaItem,
+                        positionMs = pos,
+                        durationMs = dur,
+                    )
                 }
             }
         }

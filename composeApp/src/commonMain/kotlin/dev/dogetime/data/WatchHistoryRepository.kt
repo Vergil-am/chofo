@@ -6,14 +6,21 @@ import dev.dogetime.domain.MediaItem
 import dev.dogetime.domain.MediaType
 import dev.dogetime.domain.WatchHistoryItem
 import dev.dogetime.domain.WatchTarget
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlin.time.Clock
 
 /**
  * Repository for managing watch history, progress, and resume timestamps.
+ *
+ * [appScope] lives as long as the app, so writes started by a screen that is closing still finish.
  */
-class WatchHistoryRepository(private val dao: WatchHistoryDao) {
+class WatchHistoryRepository(
+    private val dao: WatchHistoryDao,
+    private val appScope: CoroutineScope,
+) {
 
     /** Observes the latest watch history entry per media item, newest first. */
     fun observeHistory(): Flow<List<WatchHistoryItem>> =
@@ -80,6 +87,21 @@ class WatchHistoryRepository(private val dao: WatchHistoryDao) {
             lastWatchedAt = Clock.System.now().toEpochMilliseconds(),
         )
         dao.upsert(entity)
+    }
+
+    /**
+     * Fire-and-forget [saveProgress] that outlives the caller. Use it from `onDispose`, where a
+     * composition-bound scope is already being cancelled and its coroutine would never run.
+     */
+    fun saveProgressDetached(
+        target: WatchTarget,
+        mediaItem: MediaItem,
+        positionMs: Long,
+        durationMs: Long,
+    ) {
+        appScope.launch {
+            runCatching { saveProgress(target, mediaItem, positionMs, durationMs) }
+        }
     }
 
     /** Removes watch progress for a specific key. */
