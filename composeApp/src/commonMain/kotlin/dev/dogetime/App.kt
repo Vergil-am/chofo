@@ -37,6 +37,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,7 +59,6 @@ import dev.chrisbanes.haze.glass.GlassStyle
 import dev.chrisbanes.haze.glass.hazeGlass
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
-import dev.dogetime.core.CapturedStream
 import dev.dogetime.core.PlatformBackHandler
 import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
@@ -66,7 +66,6 @@ import coil3.network.ktor3.KtorNetworkFetcherFactory
 import dev.dogetime.di.AppContainer
 import dev.dogetime.domain.DownloadStatus
 import dev.dogetime.domain.MediaItem
-import dev.dogetime.domain.MediaType
 import dev.dogetime.domain.WatchTarget
 import dev.dogetime.navigation.Destination
 import dev.dogetime.navigation.Navigator
@@ -78,13 +77,15 @@ import dev.dogetime.ui.components.LocalNavAnimatedVisibilityScope
 import dev.dogetime.ui.components.LocalSharedTransitionScope
 import dev.dogetime.ui.details.DetailsScreen
 import dev.dogetime.ui.downloads.DownloadsScreen
+import dev.dogetime.ui.downloads.OfflinePlayerScreen
 import dev.dogetime.ui.home.HomeScreen
 import dev.dogetime.ui.home.HomeViewModel
-import dev.dogetime.ui.player.VideoPlayerScreen
 import dev.dogetime.ui.search.SearchScreen
 import dev.dogetime.ui.search.SearchViewModel
 import dev.dogetime.ui.settings.SettingsScreen
 import dev.dogetime.ui.watch.WatchScreen
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 private data class Tab(val destination: Destination, val label: String, val icon: ImageVector)
 
@@ -214,6 +215,8 @@ fun App() {
 
         val container = remember { AppContainer() }
         val navigator = remember { Navigator() }
+        val appUiScope = rememberCoroutineScope()
+        var offlineLookup by remember { mutableStateOf<Job?>(null) }
 
         val completedDownloads by container.downloadManager.repository.observeAll().collectAsState(initial = emptyList())
         val downloadedMediaIds = remember(completedDownloads) {
@@ -346,13 +349,19 @@ fun App() {
                                                         }
                                                     }
                                                 }
-                                                val playable = downloadedItem?.let {
-                                                    container.downloadManager.resolveOfflinePlayback(it)
-                                                }
-                                                if (playable?.videoFilePath != null) {
-                                                    navigator.open(Destination.OfflineWatch(playable))
-                                                } else {
+                                                if (downloadedItem == null) {
                                                     navigator.open(Destination.Watch(target, title, backdropUrl, mediaItem))
+                                                } else if (offlineLookup?.isActive != true) {
+                                                    // Checking the file touches the disk, so do it off the main thread.
+                                                    // The guard stops a double tap from opening the player twice.
+                                                    offlineLookup = appUiScope.launch {
+                                                        val playable = container.downloadManager.resolveOfflinePlayback(downloadedItem)
+                                                        if (playable.videoFilePath != null) {
+                                                            navigator.open(Destination.OfflineWatch(playable))
+                                                        } else {
+                                                            navigator.open(Destination.Watch(target, title, backdropUrl, mediaItem))
+                                                        }
+                                                    }
                                                 }
                                             },
                                             onOpen = openDetails,
@@ -374,46 +383,13 @@ fun App() {
                                             onBack = { navigator.back() },
                                             modifier = destModifier,
                                         )
-                                        is Destination.OfflineWatch -> {
-                                            val playItem = container.downloadManager.resolveOfflinePlayback(targetDestination.item)
-                                            val localStream = CapturedStream(
-                                                url = playItem.videoFilePath ?: "",
-                                                headers = emptyMap(),
-                                            )
-                                            val resolvedId = playItem.mediaId ?: (playItem.infoHash.hashCode().let { if (it == Int.MIN_VALUE) 0 else kotlin.math.abs(it) })
-                                            val resolvedType = playItem.mediaType ?: if (playItem.season != null) MediaType.Tv else MediaType.Movie
-                                            val target = if (playItem.season != null && playItem.episode != null) {
-                                                WatchTarget.Episode(
-                                                    showId = resolvedId,
-                                                    season = playItem.season,
-                                                    episode = playItem.episode,
-                                                )
-                                            } else {
-                                                WatchTarget.Movie(id = resolvedId)
-                                            }
-                                            val mediaItem = MediaItem(
-                                                id = resolvedId,
-                                                type = resolvedType,
-                                                title = playItem.title,
-                                                overview = "",
-                                                posterUrl = playItem.posterUrl,
-                                                backdropUrl = playItem.backdropUrl,
-                                                rating = 0.0,
-                                                year = null,
-                                            )
-                                            VideoPlayerScreen(
-                                                stream = localStream,
-                                                title = playItem.title,
-                                                onBack = { navigator.back() },
-                                                onOpenExternal = null,
-                                                target = target,
-                                                mediaItem = mediaItem,
-                                                watchHistory = container.watchHistory,
-                                                initialSubtitlePath = playItem.subtitleFilePath,
-                                                initialSubtitleLanguage = playItem.subtitleLanguage,
-                                                modifier = destModifier,
-                                            )
-                                        }
+                                        is Destination.OfflineWatch -> OfflinePlayerScreen(
+                                            item = targetDestination.item,
+                                            downloadManager = container.downloadManager,
+                                            watchHistory = container.watchHistory,
+                                            onBack = { navigator.back() },
+                                            modifier = destModifier,
+                                        )
                                     }
                                 }
                             }

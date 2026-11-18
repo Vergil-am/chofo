@@ -20,5 +20,10 @@ expect class TorrentDownloadManager(
     fun pauseDownload(id: String)
     fun resumeDownload(id: String)
     fun cancelDownload(id: String, deleteFiles: Boolean = true)
-    fun resolveOfflinePlayback(item: DownloadItem): DownloadItem
+
+    /**
+     * Returns [item] with its video and subtitle paths checked against the disk, finding the
+     * files again if they moved. Does file I/O, so it suspends and runs off the main thread.
+     */
+    suspend fun resolveOfflinePlayback(item: DownloadItem): DownloadItem
 }

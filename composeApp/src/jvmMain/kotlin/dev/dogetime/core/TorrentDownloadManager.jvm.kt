@@ -15,6 +15,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.libtorrent4j.AddTorrentParams
 import org.libtorrent4j.Priority
@@ -390,7 +391,7 @@ actual class TorrentDownloadManager actual constructor(
         }
     }
 
-    actual fun resolveOfflinePlayback(item: DownloadItem): DownloadItem {
+    actual suspend fun resolveOfflinePlayback(item: DownloadItem): DownloadItem = withContext(Dispatchers.IO) {
         val originalVideo = item.videoFilePath
         var resolvedVideo = originalVideo
         if (resolvedVideo == null || !File(resolvedVideo).exists()) {
@@ -449,11 +450,12 @@ actual class TorrentDownloadManager actual constructor(
         )
 
         if (updated.videoFilePath != item.videoFilePath || updated.subtitleFilePath != item.subtitleFilePath) {
+            // Fix the stored paths in the background; playback doesn't need to wait for it.
             scope.launch {
                 repository.upsert(updated)
             }
         }
 
-        return updated
+        updated
     }
 }

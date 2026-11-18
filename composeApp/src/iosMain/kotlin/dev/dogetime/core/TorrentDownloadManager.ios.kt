@@ -15,5 +15,5 @@ actual class TorrentDownloadManager(
     actual fun pauseDownload(id: String) = Unit
     actual fun resumeDownload(id: String) = Unit
     actual fun cancelDownload(id: String, deleteFiles: Boolean) = Unit
-    actual fun resolveOfflinePlayback(item: DownloadItem): DownloadItem = item
+    actual suspend fun resolveOfflinePlayback(item: DownloadItem): DownloadItem = item
 }
