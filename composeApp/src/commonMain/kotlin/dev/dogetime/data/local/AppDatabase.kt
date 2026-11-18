@@ -29,7 +29,9 @@ internal expect fun databaseBuilder(): RoomDatabase.Builder<AppDatabase>
 
 internal fun createDatabase(): AppDatabase =
     databaseBuilder()
-        .fallbackToDestructiveMigration(true)
+        .addMigrations(*ALL_MIGRATIONS)
+        // Only wipe when an older app build opens a newer database; upgrades must migrate.
+        .fallbackToDestructiveMigrationOnDowngrade(true)
         .setDriver(BundledSQLiteDriver())
         .setQueryCoroutineContext(Dispatchers.IO)
         .build()

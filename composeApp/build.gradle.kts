@@ -119,6 +119,10 @@ kotlin {
             )
             implementation(libs.ktor.client.okhttp)
         }
+        getByName("desktopTest").dependencies {
+            implementation(kotlin("test"))
+            implementation(libs.room.testing)
+        }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
         }
