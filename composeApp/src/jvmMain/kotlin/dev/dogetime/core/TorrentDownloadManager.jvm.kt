@@ -285,15 +285,16 @@ actual class TorrentDownloadManager actual constructor(
                         // The early fetch may have failed (e.g. offline at the time): try once more.
                         if (subtitlePath == null) fetchSelectedSubtitle(targetVideoFile.absolutePath)
                         if (subtitlePath == null) {
-                            // Check if an in-torrent subtitle exists specifically for this video/episode
+                            // Use a subtitle that came in the torrent: one named after the video, or
+                            // failing that, for episodes, one tagged with this episode.
                             val videoBase = targetVideoFile.nameWithoutExtension
-                            val embeddedSub = (0 until info.numFiles())
+                            val torrentSubs = (0 until info.numFiles())
                                 .map { File(files.filePath(it, saveDir.absolutePath)) }
-                                .firstOrNull { f ->
-                                    f.exists() && (f.name.endsWith(".srt", ignoreCase = true) || f.name.endsWith(".vtt", ignoreCase = true)) &&
-                                        (f.nameWithoutExtension.startsWith(videoBase, ignoreCase = true) ||
-                                         (item.episode != null && f.name.contains("e0*${item.episode}".toRegex(RegexOption.IGNORE_CASE))))
+                                .filter { f ->
+                                    f.exists() && (f.name.endsWith(".srt", ignoreCase = true) || f.name.endsWith(".vtt", ignoreCase = true))
                                 }
+                            val embeddedSub = torrentSubs.firstOrNull { it.nameWithoutExtension.startsWith(videoBase, ignoreCase = true) }
+                                ?: item.episode?.let { ep -> pickEpisode(torrentSubs, item.season, ep) { it.name } }
                             subtitlePath = embeddedSub?.absolutePath
                         }
 
@@ -479,12 +480,7 @@ actual class TorrentDownloadManager actual constructor(
                         .filter { it.isFile && it.extension.lowercase() in listOf("mkv", "mp4", "avi", "mov", "webm") }
                         .toList()
                     if (item.episode != null) {
-                        val s = item.season ?: 1
-                        val ep1 = Regex("""(?i)\bs0*${s}[.\-_ ]*e0*${item.episode}\b""")
-                        val ep2 = Regex("""(?i)\b${s}x0*${item.episode}\b""")
-                        val ep3 = Regex("""(?i)\bep?0*${item.episode}\b""")
-                        val match = videos.firstOrNull { ep1.containsMatchIn(it.name) || ep2.containsMatchIn(it.name) }
-                            ?: videos.firstOrNull { ep3.containsMatchIn(it.name) }
+                        val match = pickEpisode(videos, item.season, item.episode) { it.name }
                         if (match != null) resolvedVideo = match.absolutePath
                     } else if (videos.size == 1) {
                         resolvedVideo = videos.first().absolutePath

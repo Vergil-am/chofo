@@ -128,22 +128,10 @@ actual object Torrents {
 
         // 1. If episode number is specified, try exact Season + Episode regex matching
         if (episode != null) {
-            val s = season ?: 1
-            val pattern1 = Regex("""(?i)\bs0*${s}[.\-_ ]*e0*${episode}\b""")
-            val pattern2 = Regex("""(?i)\b${s}x0*${episode}\b""")
-            val pattern3 = Regex("""(?i)\bep?0*${episode}\b""")
-
-            val matchSe = videos.firstOrNull { idx ->
-                val name = files.fileName(idx).substringAfterLast('/').substringAfterLast('\\')
-                pattern1.containsMatchIn(name) || pattern2.containsMatchIn(name)
+            val match = pickEpisode(videos, season, episode) { idx ->
+                files.fileName(idx).substringAfterLast('/').substringAfterLast('\\')
             }
-            if (matchSe != null) return matchSe
-
-            val matchE = videos.firstOrNull { idx ->
-                val name = files.fileName(idx).substringAfterLast('/').substringAfterLast('\\')
-                pattern3.containsMatchIn(name)
-            }
-            if (matchE != null) return matchE
+            if (match != null) return match
         }
 
         // 2. Match by fileName (matching relative path, basename, or suffix)
