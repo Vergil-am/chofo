@@ -194,9 +194,13 @@ actual class TorrentDownloadManager actual constructor(
                     val fileProgressArray = runCatching { targetHandle.fileProgress() }.getOrNull()
                     val fileDone = (fileProgressArray?.getOrNull(videoIndex) ?: 0L).coerceIn(0L, targetFileSize)
                     val fileProgressRatio = (fileDone.toFloat() / targetFileSize.toFloat()).coerceIn(0f, 1f)
-                    val isFinished = fileDone >= targetFileSize ||
-                        fileProgressRatio >= 0.999f ||
-                        (targetVideoFile.exists() && targetVideoFile.length() >= targetFileSize)
+                    // The default count above includes blocks that haven't passed their hash check, so
+                    // it only drives the progress bar. Completion needs every piece of the file verified.
+                    // (File length is no proof either: libtorrent writes sparse files out of order.)
+                    val verifiedDone = runCatching {
+                        targetHandle.fileProgress(TorrentHandle.PIECE_GRANULARITY).getOrNull(videoIndex)
+                    }.getOrNull() ?: 0L
+                    val isFinished = verifiedDone >= targetFileSize
 
                     if (isFinished) {
                         // Download selected external subtitle sidecar if specified
