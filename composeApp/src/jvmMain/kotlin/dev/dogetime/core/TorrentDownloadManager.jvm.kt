@@ -97,9 +97,25 @@ actual class TorrentDownloadManager actual constructor(
         activeJobs[item.id]?.cancel()
 
         val job = scope.launch {
+            // The subtitle is saved early (see below), so a resumed download already has it. Every
+            // write goes through latest() so progress updates never wipe the saved subtitle.
+            var subtitlePath = item.subtitleFilePath?.takeIf { File(it).isFile }
+            var subtitleLanguage = item.subtitleLanguage.takeIf { subtitlePath != null }
+            fun latest() = item.copy(subtitleFilePath = subtitlePath, subtitleLanguage = subtitleLanguage)
+
+            /** Fetches [selectedSubtitle] next to the video. Returns false if it couldn't. */
+            suspend fun fetchSelectedSubtitle(videoPath: String): Boolean {
+                val subtitle = selectedSubtitle ?: return false
+                val saved = runCatching { subtitleDownloader.downloadAndSaveSidecar(videoPath, subtitle) }
+                    .getOrNull() ?: return false
+                subtitlePath = saved
+                subtitleLanguage = subtitle.language
+                return true
+            }
+
             try {
                 repository.upsert(
-                    item.copy(
+                    latest().copy(
                         status = DownloadStatus.DOWNLOADING,
                         errorMessage = null,
                     ),
@@ -122,7 +138,7 @@ actual class TorrentDownloadManager actual constructor(
                         error = "Invalid magnet link: ${e.message}",
                     )
                     repository.upsert(
-                        item.copy(
+                        latest().copy(
                             status = DownloadStatus.ERROR,
                             errorMessage = "Invalid magnet link: ${e.message}",
                         ),
@@ -152,7 +168,7 @@ actual class TorrentDownloadManager actual constructor(
                             activeHandles[item.id] = current
                             val status = current.status()
                             repository.upsert(
-                                item.copy(
+                                latest().copy(
                                     status = DownloadStatus.DOWNLOADING,
                                     peers = status.numPeers(),
                                 ),
@@ -181,7 +197,7 @@ actual class TorrentDownloadManager actual constructor(
                         error = "Metadata timeout. No peers found for this torrent.",
                     )
                     repository.upsert(
-                        item.copy(
+                        latest().copy(
                             status = DownloadStatus.ERROR,
                             errorMessage = "Metadata timeout. No peers found for this torrent.",
                         ),
@@ -202,7 +218,7 @@ actual class TorrentDownloadManager actual constructor(
                         error = "No video file found in this torrent for ${item.title}.",
                     )
                     repository.upsert(
-                        item.copy(
+                        latest().copy(
                             status = DownloadStatus.ERROR,
                             errorMessage = "No video file found in this torrent for ${item.title}.",
                         ),
@@ -234,6 +250,19 @@ actual class TorrentDownloadManager actual constructor(
                 }
                 updatePriorities()
 
+                // Fetch the picked subtitle now rather than at the end: it's a few KB, the provider's
+                // link may expire before a long download finishes, and once it's on disk and in the
+                // database it survives the app being closed (only the video is resumed then).
+                if (subtitlePath == null && fetchSelectedSubtitle(targetVideoFile.absolutePath)) {
+                    repository.upsert(
+                        latest().copy(
+                            status = DownloadStatus.DOWNLOADING,
+                            fileIndex = videoIndex,
+                            videoFilePath = targetVideoFile.absolutePath,
+                        ),
+                    )
+                }
+
                 // Track download progress for this specific file
                 var polls = 0
                 while (isActive && targetHandle.isValid) {
@@ -253,16 +282,9 @@ actual class TorrentDownloadManager actual constructor(
                     val isFinished = verifiedDone >= targetFileSize
 
                     if (isFinished) {
-                        // Download selected external subtitle sidecar if specified
-                        var sidecarPath: String? = null
-                        if (selectedSubtitle != null) {
-                            sidecarPath = runCatching {
-                                subtitleDownloader.downloadAndSaveSidecar(
-                                    targetVideoFile.absolutePath,
-                                    selectedSubtitle,
-                                )
-                            }.getOrNull()
-                        } else {
+                        // The early fetch may have failed (e.g. offline at the time): try once more.
+                        if (subtitlePath == null) fetchSelectedSubtitle(targetVideoFile.absolutePath)
+                        if (subtitlePath == null) {
                             // Check if an in-torrent subtitle exists specifically for this video/episode
                             val videoBase = targetVideoFile.nameWithoutExtension
                             val embeddedSub = (0 until info.numFiles())
@@ -272,7 +294,7 @@ actual class TorrentDownloadManager actual constructor(
                                         (f.nameWithoutExtension.startsWith(videoBase, ignoreCase = true) ||
                                          (item.episode != null && f.name.contains("e0*${item.episode}".toRegex(RegexOption.IGNORE_CASE))))
                                 }
-                            sidecarPath = embeddedSub?.absolutePath
+                            subtitlePath = embeddedSub?.absolutePath
                         }
 
                         // Remove this file from wanted set since it is completed
@@ -280,7 +302,7 @@ actual class TorrentDownloadManager actual constructor(
                         updatePriorities()
 
                         repository.upsert(
-                            item.copy(
+                            latest().copy(
                                 status = DownloadStatus.COMPLETED,
                                 progress = 1f,
                                 downloadedBytes = targetFileSize,
@@ -289,15 +311,13 @@ actual class TorrentDownloadManager actual constructor(
                                 downloadRate = 0L,
                                 peers = st.numPeers(),
                                 videoFilePath = targetVideoFile.absolutePath,
-                                subtitleFilePath = sidecarPath,
-                                subtitleLanguage = selectedSubtitle?.language,
                             ),
                         )
                         DownloadNotifier.notifyCompleted(item.id, item.title)
                         break
                     } else {
                         repository.upsert(
-                            item.copy(
+                            latest().copy(
                                 status = DownloadStatus.DOWNLOADING,
                                 progress = fileProgressRatio,
                                 downloadedBytes = fileDone,
@@ -329,7 +349,7 @@ actual class TorrentDownloadManager actual constructor(
                     error = e.message ?: "Download failed",
                 )
                 repository.upsert(
-                    item.copy(
+                    latest().copy(
                         status = DownloadStatus.ERROR,
                         errorMessage = e.message ?: "Download failed",
                     ),
