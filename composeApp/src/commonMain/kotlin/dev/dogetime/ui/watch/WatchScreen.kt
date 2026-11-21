@@ -47,20 +47,19 @@ import dev.dogetime.core.ExternalPlayer
 import dev.dogetime.core.TorrentDownloadManager
 import dev.dogetime.core.Torrents
 import dev.dogetime.core.WebEngineGate
-import dev.dogetime.data.KitsuMappingRepository
 import dev.dogetime.data.OpenSubtitlesApi
 import dev.dogetime.data.StremioSubtitlesApi
 import dev.dogetime.data.SubdlApi
 import dev.dogetime.data.TorrentProvider
 import dev.dogetime.data.TorrentioApi
-import dev.dogetime.data.WatchHistoryRepository
-import dev.dogetime.data.YtsSubsApi
 import dev.dogetime.domain.DownloadItem
 import dev.dogetime.domain.MediaItem
 import dev.dogetime.domain.MediaType
 import dev.dogetime.domain.VideoSource
 import dev.dogetime.domain.WatchTarget
 import dev.dogetime.domain.extractInfoHash
+import dev.dogetime.ui.player.PlaybackSource
+import dev.dogetime.ui.player.PlayerViewModelFactory
 import dev.dogetime.ui.player.VideoPlayerScreen
 import kotlin.time.Clock
 import kotlinx.coroutines.delay
@@ -79,12 +78,10 @@ fun WatchScreen(
     target: WatchTarget,
     title: String,
     torrentio: TorrentioApi,
+    createPlayerViewModel: PlayerViewModelFactory,
     subdl: SubdlApi? = null,
     openSubtitles: OpenSubtitlesApi? = null,
-    ytsSubs: YtsSubsApi? = null,
     stremioSubtitles: StremioSubtitlesApi? = null,
-    kitsuMapping: KitsuMappingRepository? = null,
-    watchHistory: WatchHistoryRepository? = null,
     downloadManager: TorrentDownloadManager? = null,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -117,12 +114,7 @@ fun WatchScreen(
                 backdropUrl = backdropUrl,
                 target = target,
                 mediaItem = mediaItem,
-                subdl = subdl,
-                openSubtitles = openSubtitles,
-                ytsSubs = ytsSubs,
-                stremioSubtitles = stremioSubtitles,
-                kitsuMapping = kitsuMapping,
-                watchHistory = watchHistory,
+                createPlayerViewModel = createPlayerViewModel,
             )
         }
         return
@@ -220,12 +212,7 @@ fun WatchScreen(
             backdropUrl = backdropUrl,
             target = target,
             mediaItem = mediaItem,
-            subdl = subdl,
-            openSubtitles = openSubtitles,
-            ytsSubs = ytsSubs,
-            stremioSubtitles = stremioSubtitles,
-            kitsuMapping = kitsuMapping,
-            watchHistory = watchHistory,
+            createPlayerViewModel = createPlayerViewModel,
         )
     }
 }
@@ -299,12 +286,7 @@ private fun SourcePlayer(
     backdropUrl: String? = null,
     target: WatchTarget? = null,
     mediaItem: MediaItem? = null,
-    subdl: SubdlApi? = null,
-    openSubtitles: OpenSubtitlesApi? = null,
-    ytsSubs: YtsSubsApi? = null,
-    stremioSubtitles: StremioSubtitlesApi? = null,
-    kitsuMapping: KitsuMappingRepository? = null,
-    watchHistory: WatchHistoryRepository? = null,
+    createPlayerViewModel: PlayerViewModelFactory,
 ) {
     val allowedHost = remember(url) { hostOf(url) }
     val webState = rememberWebViewState(url)
@@ -335,20 +317,12 @@ private fun SourcePlayer(
     if (found != null) {
         Box(modifier.fillMaxSize()) {
             VideoPlayerScreen(
-                stream = found,
-                title = title,
+                source = PlaybackSource.Stream(found, title, target, mediaItem),
+                createViewModel = createPlayerViewModel,
                 onBack = onBack,
                 onOpenExternal = ExternalPlayer.name?.let {
                     { message = ExternalPlayer.play(found, title) ?: "Opening in $it…" }
                 },
-                target = target,
-                mediaItem = mediaItem,
-                subdl = subdl,
-                openSubtitles = openSubtitles,
-                ytsSubs = ytsSubs,
-                stremioSubtitles = stremioSubtitles,
-                kitsuMapping = kitsuMapping,
-                watchHistory = watchHistory,
             )
             message?.let { MessageChip(it, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp)) }
         }

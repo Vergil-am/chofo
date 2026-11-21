@@ -27,14 +27,10 @@ import dev.dogetime.core.ExternalPlayer
 import dev.dogetime.core.TorrentProgress
 import dev.dogetime.core.TorrentStream
 import dev.dogetime.core.Torrents
-import dev.dogetime.data.KitsuMappingRepository
-import dev.dogetime.data.OpenSubtitlesApi
-import dev.dogetime.data.StremioSubtitlesApi
-import dev.dogetime.data.SubdlApi
-import dev.dogetime.data.WatchHistoryRepository
-import dev.dogetime.data.YtsSubsApi
 import dev.dogetime.domain.MediaItem
 import dev.dogetime.domain.WatchTarget
+import dev.dogetime.ui.player.PlaybackSource
+import dev.dogetime.ui.player.PlayerViewModelFactory
 import dev.dogetime.ui.player.VideoPlayerScreen
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -64,12 +60,7 @@ internal fun MagnetPlayer(
     backdropUrl: String? = null,
     target: WatchTarget? = null,
     mediaItem: MediaItem? = null,
-    subdl: SubdlApi? = null,
-    openSubtitles: OpenSubtitlesApi? = null,
-    ytsSubs: YtsSubsApi? = null,
-    stremioSubtitles: StremioSubtitlesApi? = null,
-    kitsuMapping: KitsuMappingRepository? = null,
-    watchHistory: WatchHistoryRepository? = null,
+    createPlayerViewModel: PlayerViewModelFactory,
 ) {
     var torrent by remember { mutableStateOf<TorrentStream?>(null) }
     var progress by remember { mutableStateOf(TorrentProgress()) }
@@ -111,20 +102,12 @@ internal fun MagnetPlayer(
     if (opened != null) {
         Box(modifier.fillMaxSize()) {
             VideoPlayerScreen(
-                stream = opened.stream,
-                title = title,
+                source = PlaybackSource.Stream(opened.stream, title, target, mediaItem),
+                createViewModel = createPlayerViewModel,
                 onBack = onBack,
                 onOpenExternal = ExternalPlayer.name?.let {
                     { message = ExternalPlayer.play(opened.stream, title) ?: "Opening in $it…" }
                 },
-                target = target,
-                mediaItem = mediaItem,
-                subdl = subdl,
-                openSubtitles = openSubtitles,
-                ytsSubs = ytsSubs,
-                stremioSubtitles = stremioSubtitles,
-                kitsuMapping = kitsuMapping,
-                watchHistory = watchHistory,
             )
             message?.let { MessageChip(it, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp)) }
         }

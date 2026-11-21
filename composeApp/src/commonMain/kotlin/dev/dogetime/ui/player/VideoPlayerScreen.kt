@@ -42,13 +42,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,74 +78,70 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.dogetime.core.CapturedStream
-import dev.dogetime.core.extractAndSaveSubtitle
-import dev.dogetime.data.KitsuMappingRepository
-import dev.dogetime.data.OpenSubtitlesApi
-import dev.dogetime.data.StremioSubtitlesApi
-import dev.dogetime.data.SubdlApi
-import dev.dogetime.data.WatchHistoryRepository
-import dev.dogetime.data.YtsSubsApi
-import dev.dogetime.domain.MediaItem
 import dev.dogetime.domain.Subtitle
 import dev.dogetime.domain.SubtitleGroup
-import dev.dogetime.domain.WatchTarget
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 private const val CONTROLS_HIDE_DELAY_MS = 3_500L
 private const val FEEDBACK_DURATION_MS = 700L
 private const val DOUBLE_TAP_SEEK_MS = 10_000L
 private const val KEY_SEEK_MS = 5_000L
+private const val PROGRESS_SAVE_INTERVAL_MS = 5_000L
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
 private val Scrim = Color.Black.copy(alpha = 0.72f)
 private val ControlTint = Color.White
 
+/** Builds the [PlayerViewModel] for a [PlaybackSource]. Provided by the app's container. */
+typealias PlayerViewModelFactory = (PlaybackSource) -> PlayerViewModel
+
 /**
- * Full-screen player for [stream] with auto-hiding controls: a top bar (back, title, speed,
+ * Full-screen player for [source] with auto-hiding controls: a top bar (back, title, speed,
  * external player), large center buttons, and a seek bar. On touch screens a tap shows or hides
  * the controls and a double tap on either side seeks; with a mouse a click pauses and a double
  * click toggles fullscreen. [onOpenExternal] adds a button that hands the stream to another app.
  */
 @Composable
 fun VideoPlayerScreen(
-    stream: CapturedStream,
-    title: String,
+    source: PlaybackSource,
+    createViewModel: PlayerViewModelFactory,
     onBack: () -> Unit,
     onOpenExternal: (() -> Unit)?,
     modifier: Modifier = Modifier,
-    target: WatchTarget? = null,
-    mediaItem: MediaItem? = null,
-    subdl: SubdlApi? = null,
-    openSubtitles: OpenSubtitlesApi? = null,
-    ytsSubs: YtsSubsApi? = null,
-    stremioSubtitles: StremioSubtitlesApi? = null,
-    kitsuMapping: KitsuMappingRepository? = null,
-    watchHistory: WatchHistoryRepository? = null,
-    initialSubtitlePath: String? = null,
-    initialSubtitleLanguage: String? = null,
 ) {
+    // Sources are data classes, so an equal source on recomposition keeps the same ViewModel.
+    val viewModel = remember(source) { createViewModel(source) }
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.clear() }
+    }
+    val state by viewModel.state.collectAsState()
+
     PlayerSystemUiEffect()
+    val playback = state.playback
+    if (playback == null) {
+        // A download's files are still being looked up, or turned out to be missing.
+        Box(modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+            val error = state.loadError
+            if (error != null) {
+                ErrorPanel(message = error, actionLabel = "Back", onAction = onBack, onOpenExternal = null)
+            } else {
+                CircularProgressIndicator(color = ControlTint)
+            }
+        }
+        return
+    }
+
     // "Try again" starts a fresh player.
-    var attempt by remember(stream) { mutableIntStateOf(0) }
-    key(stream, attempt) {
+    var attempt by remember(playback.stream) { mutableIntStateOf(0) }
+    key(playback.stream, attempt) {
         PlayerContent(
-            stream = stream,
-            title = title,
+            viewModel = viewModel,
+            state = state,
+            stream = playback.stream,
+            title = playback.title,
             onBack = onBack,
             onOpenExternal = onOpenExternal,
             onRetry = { attempt++ },
             modifier = modifier,
-            target = target,
-            mediaItem = mediaItem,
-            subdl = subdl,
-            openSubtitles = openSubtitles,
-            ytsSubs = ytsSubs,
-            stremioSubtitles = stremioSubtitles,
-            kitsuMapping = kitsuMapping,
-            watchHistory = watchHistory,
-            initialSubtitlePath = initialSubtitlePath,
-            initialSubtitleLanguage = initialSubtitleLanguage,
         )
     }
 }
@@ -155,22 +151,14 @@ private data class Feedback(val text: String, val alignment: Alignment, val id: 
 
 @Composable
 private fun PlayerContent(
+    viewModel: PlayerViewModel,
+    state: PlayerUiState,
     stream: CapturedStream,
     title: String,
     onBack: () -> Unit,
     onOpenExternal: (() -> Unit)?,
     onRetry: () -> Unit,
     modifier: Modifier,
-    target: WatchTarget? = null,
-    mediaItem: MediaItem? = null,
-    subdl: SubdlApi? = null,
-    openSubtitles: OpenSubtitlesApi? = null,
-    ytsSubs: YtsSubsApi? = null,
-    stremioSubtitles: StremioSubtitlesApi? = null,
-    kitsuMapping: KitsuMappingRepository? = null,
-    watchHistory: WatchHistoryRepository? = null,
-    initialSubtitlePath: String? = null,
-    initialSubtitleLanguage: String? = null,
 ) {
     val controller = rememberVideoPlayerController(stream, title)
     val fullscreen = rememberFullscreenController()
@@ -200,258 +188,57 @@ private fun PlayerContent(
         }
     }
 
-    var activeSubtitleLanguage by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(initialSubtitlePath, controller.durationMs) {
-        if (initialSubtitlePath != null && controller.durationMs > 0L) {
-            val lang = initialSubtitleLanguage ?: "Default"
-            controller.addExternalSubtitle(initialSubtitlePath, lang, lang)
-            activeSubtitleLanguage = lang
-        }
-    }
-    var stremioSubtitlesGroups by remember { mutableStateOf<List<SubtitleGroup>>(emptyList()) }
-    var subdlGroups by remember { mutableStateOf<List<SubtitleGroup>>(emptyList()) }
-    var openSubtitlesGroups by remember { mutableStateOf<List<SubtitleGroup>>(emptyList()) }
-    var ytsSubsGroups by remember { mutableStateOf<List<SubtitleGroup>>(emptyList()) }
-    var isLoadingStremioSubtitles by remember { mutableStateOf(false) }
-    val subtitleGroups = remember(stremioSubtitlesGroups, subdlGroups, openSubtitlesGroups, ytsSubsGroups) {
-        (stremioSubtitlesGroups + subdlGroups + openSubtitlesGroups + ytsSubsGroups)
-            .groupBy { it.language }
-            .map { (lang, groups) ->
-                SubtitleGroup(
-                    language = lang,
-                    subtitles = groups.flatMap { it.subtitles },
-                )
+    val isReady = controller.durationMs > 0L
+
+    // Load the ViewModel's subtitle file once the video is ready. A fresh controller (after
+    // "Try again") starts at -1, so it loads the current file again.
+    val subtitleFile = state.subtitleFile
+    var loadedSubtitleId by remember { mutableIntStateOf(-1) }
+    LaunchedEffect(subtitleFile, isReady) {
+        if (subtitleFile != null && isReady && subtitleFile.id != loadedSubtitleId) {
+            loadedSubtitleId = subtitleFile.id
+            controller.addExternalSubtitle(subtitleFile.path, subtitleFile.language, subtitleFile.language)
+            if (subtitleFile.announce) {
+                feedback = Feedback(subtitleFile.language, Alignment.Center, (feedback?.id ?: 0) + 1)
             }
-            .sortedBy { it.language }
-    }
-    var isLoadingSubdl by remember { mutableStateOf(false) }
-    var isLoadingOpenSubtitles by remember { mutableStateOf(false) }
-    var isLoadingYtsSubs by remember { mutableStateOf(false) }
-    var hasSearchedSubdl by remember { mutableStateOf(false) }
-    var hasSearchedOpenSubtitles by remember { mutableStateOf(false) }
-    var hasSearchedYtsSubs by remember { mutableStateOf(false) }
-    var subtitleError by remember { mutableStateOf<String?>(null) }
-    var downloadingSubtitleUrl by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-
-    var effectiveTarget by remember(target) { mutableStateOf(target) }
-
-    suspend fun resolveTarget(t: WatchTarget): WatchTarget {
-        if (t.imdbId != null) return t
-        val kitsuId = t.kitsuId ?: return t
-        val kitsuEp = (t as? WatchTarget.Episode)?.episode
-        val resolved = kitsuMapping?.resolve(kitsuId, kitsuEp) ?: return t
-        return when (t) {
-            is WatchTarget.Movie -> t.copy(imdbId = resolved.imdbId)
-            is WatchTarget.Episode -> t.copy(
-                imdbId = resolved.imdbId,
-                season = resolved.season ?: t.season,
-                episode = resolved.episode ?: t.episode,
-            )
         }
     }
 
-    LaunchedEffect(target, kitsuMapping) {
-        if (target != null && target.kitsuId != null && kitsuMapping != null) {
-            effectiveTarget = resolveTarget(target)
-        } else {
-            effectiveTarget = target
+    // Resume from the saved position once the duration is known.
+    LaunchedEffect(isReady) {
+        if (isReady) {
+            viewModel.resumePosition(controller.durationMs)?.let(controller::seekTo)
         }
     }
 
-    // Auto-resume from saved watch history position once duration is known.
-    var hasResumed by remember { mutableStateOf(false) }
-    LaunchedEffect(target, mediaItem, watchHistory, controller.durationMs) {
-        if (!hasResumed && controller.durationMs > 0 && target != null && mediaItem != null && watchHistory != null) {
-            hasResumed = true
-            try {
-                val season = (target as? WatchTarget.Episode)?.season
-                val episode = (target as? WatchTarget.Episode)?.episode
-                val saved = watchHistory.getHistory(mediaItem.type, mediaItem.id, season, episode)
-                if (saved != null && saved.positionMs > 5_000L && saved.positionMs < (controller.durationMs * 0.95f)) {
-                    controller.seekTo(saved.positionMs)
-                }
-            } catch (_: Exception) {}
-        }
+    fun currentPosition(): Long {
+        val dur = controller.durationMs
+        return if (controller.isEnded && dur > 0) dur else controller.positionMs
     }
 
-    // Periodically save playback position and episode to Room watch history while playing.
-    LaunchedEffect(target, mediaItem, watchHistory, controller) {
-        if (target == null || mediaItem == null || watchHistory == null) return@LaunchedEffect
+    // Save the position every few seconds while the player is open.
+    LaunchedEffect(controller) {
         while (true) {
-            delay(5_000L)
-            val dur = controller.durationMs
-            val pos = if (controller.isEnded && dur > 0) dur else controller.positionMs
-            if (pos > 0) {
-                try {
-                    watchHistory.saveProgress(
-                        target = target,
-                        mediaItem = mediaItem,
-                        positionMs = pos,
-                        durationMs = dur,
-                    )
-                } catch (_: Exception) {
-                    // Non-fatal if saving progress fails
-                }
-            }
+            delay(PROGRESS_SAVE_INTERVAL_MS)
+            viewModel.saveProgress(currentPosition(), controller.durationMs)
         }
     }
 
-    // Immediately mark finished when playback ends.
-    LaunchedEffect(controller.isEnded, target, mediaItem, watchHistory) {
-        if (controller.isEnded && target != null && mediaItem != null && watchHistory != null) {
-            val dur = controller.durationMs
-            if (dur > 0) {
-                try {
-                    watchHistory.saveProgress(
-                        target = target,
-                        mediaItem = mediaItem,
-                        positionMs = dur,
-                        durationMs = dur,
-                    )
-                } catch (_: Exception) {}
-            }
-        }
+    // Mark the video finished as soon as it ends.
+    LaunchedEffect(controller.isEnded) {
+        val dur = controller.durationMs
+        if (controller.isEnded && dur > 0) viewModel.saveProgress(dur, dur)
     }
 
-    // Save final progress on exit. The position is read now, before the controller is released,
-    // and saved on the app scope: `scope` is cancelled with this composition, so a coroutine
-    // launched on it here would never run.
-    DisposableEffect(target, mediaItem, watchHistory, controller) {
-        onDispose {
-            if (target != null && mediaItem != null && watchHistory != null) {
-                val dur = controller.durationMs
-                val pos = if (controller.isEnded && dur > 0) dur else controller.positionMs
-                if (pos > 0) {
-                    watchHistory.saveProgressDetached(
-                        target = target,
-                        mediaItem = mediaItem,
-                        positionMs = pos,
-                        durationMs = dur,
-                    )
-                }
-            }
-        }
-    }
-
-    // Automatically fetch subtitles from Stremio add-ons (OpenSubtitles v3 / Anime Kitsu) when playing
-    LaunchedEffect(target, stremioSubtitles) {
-        if (target != null && stremioSubtitles != null) {
-            isLoadingStremioSubtitles = true
-            try {
-                stremioSubtitlesGroups = stremioSubtitles.search(target)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                // Auto-fetch in background fails gracefully
-            } finally {
-                isLoadingStremioSubtitles = false
-            }
-        }
-    }
-
-    fun onSearchSubdl() {
-        val currentTarget = effectiveTarget ?: target
-        if (currentTarget != null && subdl != null && !isLoadingSubdl) {
-            hasSearchedSubdl = true
-            scope.launch {
-                isLoadingSubdl = true
-                subtitleError = null
-                try {
-                    val resolved = resolveTarget(currentTarget)
-                    subdlGroups = subdl.search(resolved)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    subtitleError = e.message ?: "Failed to find SubDL subtitles."
-                } finally {
-                    isLoadingSubdl = false
-                }
-            }
-        }
-    }
-
-    fun onSearchOpenSubtitles() {
-        val currentTarget = effectiveTarget ?: target
-        if (currentTarget != null && openSubtitles != null && !isLoadingOpenSubtitles) {
-            hasSearchedOpenSubtitles = true
-            scope.launch {
-                isLoadingOpenSubtitles = true
-                subtitleError = null
-                try {
-                    val resolved = resolveTarget(currentTarget)
-                    openSubtitlesGroups = openSubtitles.search(resolved)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    subtitleError = e.message ?: "Failed to find OpenSubtitles subtitles."
-                } finally {
-                    isLoadingOpenSubtitles = false
-                }
-            }
-        }
-    }
-
-    fun onSearchYtsSubs() {
-        val currentTarget = effectiveTarget ?: target
-        if (currentTarget is WatchTarget.Movie && ytsSubs != null && !isLoadingYtsSubs) {
-            hasSearchedYtsSubs = true
-            scope.launch {
-                isLoadingYtsSubs = true
-                subtitleError = null
-                try {
-                    val resolved = resolveTarget(currentTarget)
-                    ytsSubsGroups = ytsSubs.search(resolved)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    subtitleError = e.message ?: "Failed to find YTS subtitles."
-                } finally {
-                    isLoadingYtsSubs = false
-                }
-            }
-        }
-    }
-
-    fun onPickSubtitle(subtitle: Subtitle) {
-        if (openSubtitles == null && subdl == null && ytsSubs == null && stremioSubtitles == null) return
-        scope.launch {
-            downloadingSubtitleUrl = subtitle.downloadUrl
-            try {
-                val bytes = if (subtitle.downloadUrl.contains("yts-subs.com")) {
-                    ytsSubs?.download(subtitle.downloadUrl)
-                        ?: throw IllegalStateException("YTS Subs provider not available")
-                } else if (subtitle.downloadUrl.contains("strem.io") || subtitle.downloadUrl.contains("strem.fun") || (stremioSubtitles != null && subtitle.downloadUrl.startsWith("http"))) {
-                    stremioSubtitles?.download(subtitle.downloadUrl)
-                        ?: throw IllegalStateException("Stremio subtitles provider not available")
-                } else if (openSubtitles != null && (subtitle.downloadUrl.toLongOrNull() != null || subdl == null)) {
-                    openSubtitles.download(subtitle.downloadUrl)
-                } else if (subdl != null) {
-                    subdl.download(subtitle.downloadUrl)
-                } else {
-                    throw IllegalStateException("No subtitle provider available")
-                }
-                val path = extractAndSaveSubtitle(bytes, subtitle.releaseName)
-                if (path != null) {
-                    controller.addExternalSubtitle(path, subtitle.language, subtitle.language)
-                    activeSubtitleLanguage = subtitle.language
-                    feedback = Feedback(subtitle.language, Alignment.Center, (feedback?.id ?: 0) + 1)
-                } else {
-                    subtitleError = "Could not extract subtitle file."
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                subtitleError = e.message ?: "Failed to download subtitle."
-            } finally {
-                downloadingSubtitleUrl = null
-            }
-        }
+    // Save the final position on exit. It is read now, before the controller is released, and
+    // saved on the app scope, since the ViewModel is being cleared too.
+    DisposableEffect(controller) {
+        onDispose { viewModel.saveFinalProgress(currentPosition(), controller.durationMs) }
     }
 
     fun onTurnOffSubtitles() {
         controller.selectSubtitleTrack(null)
-        activeSubtitleLanguage = null
+        viewModel.onSubtitlesOff()
     }
     fun seekWithFeedback(deltaMs: Long) {
         val previous = feedback
@@ -566,26 +353,11 @@ private fun PlayerContent(
                 TopBar(
                     title = title,
                     controller = controller,
-                    activeLanguage = activeSubtitleLanguage,
-                    subtitleGroups = subtitleGroups,
-                    subdlGroups = subdlGroups,
-                    openSubtitlesGroups = openSubtitlesGroups,
-                    ytsSubsGroups = ytsSubsGroups,
-                    isLoadingSubdl = isLoadingSubdl,
-                    isLoadingOpenSubtitles = isLoadingOpenSubtitles,
-                    isLoadingYtsSubs = isLoadingYtsSubs,
-                    isLoadingStremioSubtitles = isLoadingStremioSubtitles,
-                    hasSearchedSubdl = hasSearchedSubdl,
-                    hasSearchedOpenSubtitles = hasSearchedOpenSubtitles,
-                    hasSearchedYtsSubs = hasSearchedYtsSubs,
-                    canSearchSubdl = (effectiveTarget ?: target) != null && subdl != null,
-                    canSearchOpenSubtitles = (effectiveTarget ?: target) != null && openSubtitles != null,
-                    canSearchYtsSubs = (effectiveTarget ?: target) is WatchTarget.Movie && ytsSubs != null && ((effectiveTarget ?: target)?.imdbId != null || (effectiveTarget ?: target)?.kitsuId != null),
-                    downloadingSubtitleUrl = downloadingSubtitleUrl,
-                    onSearchSubdl = ::onSearchSubdl,
-                    onSearchOpenSubtitles = ::onSearchOpenSubtitles,
-                    onSearchYtsSubs = ::onSearchYtsSubs,
-                    onPickSubtitle = ::onPickSubtitle,
+                    subtitles = state,
+                    onSearchSubdl = viewModel::searchSubdl,
+                    onSearchOpenSubtitles = viewModel::searchOpenSubtitles,
+                    onSearchYtsSubs = viewModel::searchYtsSubs,
+                    onPickSubtitle = viewModel::pickSubtitle,
                     onTurnOffSubtitles = ::onTurnOffSubtitles,
                     onMenuOpenChange = { menuOpen = it; showControls() },
                     onBack = onBack,
@@ -599,7 +371,7 @@ private fun PlayerContent(
                 if (error != null) {
                     ErrorPanel(
                         message = error,
-                        onRetry = onRetry,
+                        onAction = onRetry,
                         onOpenExternal = onOpenExternal,
                         modifier = Modifier.align(Alignment.Center),
                     )
@@ -668,22 +440,7 @@ private fun handleKey(
 private fun TopBar(
     title: String,
     controller: VideoPlayerController,
-    activeLanguage: String?,
-    subtitleGroups: List<SubtitleGroup>,
-    subdlGroups: List<SubtitleGroup>,
-    openSubtitlesGroups: List<SubtitleGroup>,
-    ytsSubsGroups: List<SubtitleGroup>,
-    isLoadingSubdl: Boolean,
-    isLoadingOpenSubtitles: Boolean,
-    isLoadingYtsSubs: Boolean,
-    isLoadingStremioSubtitles: Boolean = false,
-    hasSearchedSubdl: Boolean,
-    hasSearchedOpenSubtitles: Boolean,
-    hasSearchedYtsSubs: Boolean,
-    canSearchSubdl: Boolean,
-    canSearchOpenSubtitles: Boolean,
-    canSearchYtsSubs: Boolean,
-    downloadingSubtitleUrl: String?,
+    subtitles: PlayerUiState,
     onSearchSubdl: () -> Unit,
     onSearchOpenSubtitles: () -> Unit,
     onSearchYtsSubs: () -> Unit,
@@ -723,27 +480,12 @@ private fun TopBar(
             )
         }
         val hasSubs = controller.subtitleTracks.isNotEmpty() ||
-            canSearchSubdl || canSearchOpenSubtitles || canSearchYtsSubs ||
-            subtitleGroups.isNotEmpty() || isLoadingSubdl || isLoadingOpenSubtitles || isLoadingYtsSubs || isLoadingStremioSubtitles
+            subtitles.canSearchSubdl || subtitles.canSearchOpenSubtitles || subtitles.canSearchYtsSubs ||
+            subtitles.subtitleGroups.isNotEmpty() || subtitles.isLoadingAnySubtitles
         if (hasSubs) {
             SubtitlesMenu(
                 controller = controller,
-                activeLanguage = activeLanguage,
-                subtitleGroups = subtitleGroups,
-                subdlGroups = subdlGroups,
-                openSubtitlesGroups = openSubtitlesGroups,
-                ytsSubsGroups = ytsSubsGroups,
-                isLoadingSubdl = isLoadingSubdl,
-                isLoadingOpenSubtitles = isLoadingOpenSubtitles,
-                isLoadingYtsSubs = isLoadingYtsSubs,
-                isLoadingStremioSubtitles = isLoadingStremioSubtitles,
-                hasSearchedSubdl = hasSearchedSubdl,
-                hasSearchedOpenSubtitles = hasSearchedOpenSubtitles,
-                hasSearchedYtsSubs = hasSearchedYtsSubs,
-                canSearchSubdl = canSearchSubdl,
-                canSearchOpenSubtitles = canSearchOpenSubtitles,
-                canSearchYtsSubs = canSearchYtsSubs,
-                downloadingSubtitleUrl = downloadingSubtitleUrl,
+                subtitles = subtitles,
                 onSearchSubdl = onSearchSubdl,
                 onSearchOpenSubtitles = onSearchOpenSubtitles,
                 onSearchYtsSubs = onSearchYtsSubs,
@@ -770,22 +512,7 @@ private fun TopBar(
 @Composable
 private fun SubtitlesMenu(
     controller: VideoPlayerController,
-    activeLanguage: String?,
-    subtitleGroups: List<SubtitleGroup>,
-    subdlGroups: List<SubtitleGroup>,
-    openSubtitlesGroups: List<SubtitleGroup>,
-    ytsSubsGroups: List<SubtitleGroup>,
-    isLoadingSubdl: Boolean,
-    isLoadingOpenSubtitles: Boolean,
-    isLoadingYtsSubs: Boolean,
-    isLoadingStremioSubtitles: Boolean = false,
-    hasSearchedSubdl: Boolean,
-    hasSearchedOpenSubtitles: Boolean,
-    hasSearchedYtsSubs: Boolean,
-    canSearchSubdl: Boolean,
-    canSearchOpenSubtitles: Boolean,
-    canSearchYtsSubs: Boolean,
-    downloadingSubtitleUrl: String?,
+    subtitles: PlayerUiState,
     onSearchSubdl: () -> Unit,
     onSearchOpenSubtitles: () -> Unit,
     onSearchYtsSubs: () -> Unit,
@@ -793,6 +520,23 @@ private fun SubtitlesMenu(
     onTurnOffSubtitles: () -> Unit,
     onOpenChange: (Boolean) -> Unit,
 ) {
+    val activeLanguage = subtitles.activeSubtitleLanguage
+    val subtitleGroups = subtitles.subtitleGroups
+    val subdlGroups = subtitles.subdl.groups
+    val openSubtitlesGroups = subtitles.openSubtitles.groups
+    val ytsSubsGroups = subtitles.ytsSubs.groups
+    val isLoadingSubdl = subtitles.subdl.isLoading
+    val isLoadingOpenSubtitles = subtitles.openSubtitles.isLoading
+    val isLoadingYtsSubs = subtitles.ytsSubs.isLoading
+    val isLoadingStremioSubtitles = subtitles.stremio.isLoading
+    val hasSearchedSubdl = subtitles.subdl.hasSearched
+    val hasSearchedOpenSubtitles = subtitles.openSubtitles.hasSearched
+    val hasSearchedYtsSubs = subtitles.ytsSubs.hasSearched
+    val canSearchSubdl = subtitles.canSearchSubdl
+    val canSearchOpenSubtitles = subtitles.canSearchOpenSubtitles
+    val canSearchYtsSubs = subtitles.canSearchYtsSubs
+    val downloadingSubtitleUrl = subtitles.downloadingSubtitleUrl
+
     var open by remember { mutableStateOf(false) }
     var selectedLanguageGroup by remember { mutableStateOf<SubtitleGroup?>(null) }
 
@@ -1364,7 +1108,13 @@ private fun TimeLabel(ms: Long) {
 }
 
 @Composable
-private fun ErrorPanel(message: String, onRetry: () -> Unit, onOpenExternal: (() -> Unit)?, modifier: Modifier = Modifier) {
+private fun ErrorPanel(
+    message: String,
+    onAction: () -> Unit,
+    onOpenExternal: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    actionLabel: String = "Try again",
+) {
     Column(
         modifier = modifier
             .widthIn(max = 420.dp)
@@ -1383,7 +1133,7 @@ private fun ErrorPanel(message: String, onRetry: () -> Unit, onOpenExternal: (()
             textAlign = TextAlign.Center,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onRetry) { Text("Try again") }
+            Button(onClick = onAction) { Text(actionLabel) }
             if (onOpenExternal != null) {
                 OutlinedButton(onClick = onOpenExternal) { Text("Other player") }
             }

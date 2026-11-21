@@ -17,6 +17,8 @@ import dev.dogetime.data.WatchHistoryRepository
 import dev.dogetime.data.YtsSubsApi
 import dev.dogetime.data.createHttpClient
 import dev.dogetime.data.local.createDatabase
+import dev.dogetime.ui.player.PlaybackSource
+import dev.dogetime.ui.player.PlayerViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -51,5 +53,17 @@ class AppContainer {
     val downloadManager: TorrentDownloadManager = TorrentDownloadManager(
         repository = downloadRepository,
         subtitleDownloader = subtitleDownloader,
+    )
+
+    fun playerViewModel(source: PlaybackSource): PlayerViewModel = PlayerViewModel(
+        source = source,
+        watchHistory = watchHistory,
+        downloadManager = downloadManager,
+        subtitleDownloader = subtitleDownloader,
+        kitsuMapping = kitsuMapping,
+        stremioSubtitles = stremioSubtitles,
+        subdl = subdl,
+        openSubtitles = openSubtitles,
+        ytsSubs = ytsSubs,
     )
 }

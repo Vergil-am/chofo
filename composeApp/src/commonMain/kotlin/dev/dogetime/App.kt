@@ -79,9 +79,10 @@ import dev.dogetime.ui.components.LocalNavAnimatedVisibilityScope
 import dev.dogetime.ui.components.LocalSharedTransitionScope
 import dev.dogetime.ui.details.DetailsScreen
 import dev.dogetime.ui.downloads.DownloadsScreen
-import dev.dogetime.ui.downloads.OfflinePlayerScreen
 import dev.dogetime.ui.home.HomeScreen
 import dev.dogetime.ui.home.HomeViewModel
+import dev.dogetime.ui.player.PlaybackSource
+import dev.dogetime.ui.player.VideoPlayerScreen
 import dev.dogetime.ui.search.SearchScreen
 import dev.dogetime.ui.search.SearchViewModel
 import dev.dogetime.ui.settings.SettingsScreen
@@ -377,21 +378,19 @@ fun App() {
                                             torrentio = container.torrentio,
                                             subdl = container.subdl,
                                             openSubtitles = container.openSubtitles,
-                                            ytsSubs = container.ytsSubs,
                                             stremioSubtitles = container.stremioSubtitles,
-                                            kitsuMapping = container.kitsuMapping,
-                                            watchHistory = container.watchHistory,
+                                            createPlayerViewModel = container::playerViewModel,
                                             downloadManager = container.downloadManager,
                                             backdropUrl = targetDestination.backdropUrl,
                                             mediaItem = targetDestination.mediaItem,
                                             onBack = { navigator.back() },
                                             modifier = destModifier,
                                         )
-                                        is Destination.OfflineWatch -> OfflinePlayerScreen(
-                                            item = targetDestination.item,
-                                            downloadManager = container.downloadManager,
-                                            watchHistory = container.watchHistory,
+                                        is Destination.OfflineWatch -> VideoPlayerScreen(
+                                            source = PlaybackSource.Download(targetDestination.item),
+                                            createViewModel = container::playerViewModel,
                                             onBack = { navigator.back() },
+                                            onOpenExternal = null,
                                             modifier = destModifier,
                                         )
                                     }
