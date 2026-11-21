@@ -6,6 +6,8 @@ import dev.dogetime.data.FavoritesRepository
 import dev.dogetime.data.KitsuApi
 import dev.dogetime.data.KitsuMappingRepository
 import dev.dogetime.data.MediaRepository
+import dev.dogetime.data.OfflineCopyFinder
+import dev.dogetime.data.PreferencesRepository
 import dev.dogetime.data.OpenSubtitlesApi
 import dev.dogetime.data.StremioSubtitlesApi
 import dev.dogetime.data.SubdlApi
@@ -44,6 +46,7 @@ class AppContainer {
     val favorites: FavoritesRepository = FavoritesRepository(database.favoriteDao())
     val watchHistory: WatchHistoryRepository = WatchHistoryRepository(database.watchHistoryDao(), appScope)
     val updateChecker: UpdateChecker = UpdateChecker(httpClient)
+    val preferences: PreferencesRepository = PreferencesRepository(database.preferenceDao(), appScope)
 
     val downloadRepository: DownloadRepository = DownloadRepository(database.downloadDao())
     val subtitleDownloader: SubtitleDownloader = SubtitleDownloader(
@@ -56,6 +59,8 @@ class AppContainer {
         repository = downloadRepository,
         subtitleDownloader = subtitleDownloader,
     )
+
+    val offlineCopies: OfflineCopyFinder = OfflineCopyFinder(downloadRepository, downloadManager)
 
     fun playerViewModel(source: PlaybackSource): PlayerViewModel = PlayerViewModel(
         source = source,

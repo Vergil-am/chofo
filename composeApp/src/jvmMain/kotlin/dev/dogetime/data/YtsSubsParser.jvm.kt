@@ -1,6 +1,7 @@
 package dev.dogetime.data
 
 import dev.dogetime.domain.Subtitle
+import dev.dogetime.domain.SubtitleProvider
 import org.jsoup.Jsoup
 import java.util.Base64
 
@@ -27,6 +28,7 @@ internal actual fun parseYtsSubsMoviePage(html: String, baseUrl: String): List<S
             releaseName = releaseName.ifBlank { "YTS Subtitle" },
             language = lang,
             author = uploader,
+            provider = SubtitleProvider.YtsSubs,
             downloadUrl = pageUrl,
             hearingImpaired = false,
             season = null,

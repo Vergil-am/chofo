@@ -1,5 +1,7 @@
 package dev.dogetime.domain
 
+import kotlinx.serialization.Serializable
+
 enum class DownloadStatus {
     QUEUED,
     DOWNLOADING,
@@ -8,6 +10,7 @@ enum class DownloadStatus {
     ERROR,
 }
 
+@Serializable
 data class DownloadItem(
     val id: String,
     val title: String,

@@ -2,34 +2,22 @@ package dev.dogetime.data
 
 import dev.dogetime.core.extractAndSaveSubtitleTo
 import dev.dogetime.domain.Subtitle
+import dev.dogetime.domain.SubtitleProvider
 
 class SubtitleDownloader(
-    private val openSubtitles: OpenSubtitlesApi? = null,
-    private val subdl: SubdlApi? = null,
-    private val ytsSubs: YtsSubsApi? = null,
-    private val stremioSubtitles: StremioSubtitlesApi? = null,
+    private val openSubtitles: OpenSubtitlesApi,
+    private val subdl: SubdlApi,
+    private val ytsSubs: YtsSubsApi,
+    private val stremioSubtitles: StremioSubtitlesApi,
 ) {
-    /**
-     * Downloads raw subtitle bytes using the appropriate provider for this [subtitle].
-     */
+    /** Downloads [subtitle]'s raw bytes (often a zip) from the provider it was found on. */
     suspend fun downloadBytes(subtitle: Subtitle): ByteArray {
         val url = subtitle.downloadUrl
-        return when {
-            url.contains("yts-subs.com") -> {
-                ytsSubs?.download(url) ?: throw IllegalStateException("YTS Subs provider not available")
-            }
-            url.contains("strem.io") || url.contains("strem.fun") || (stremioSubtitles != null && url.startsWith("http")) -> {
-                stremioSubtitles?.download(url) ?: throw IllegalStateException("Stremio subtitles provider not available")
-            }
-            openSubtitles != null && (url.toLongOrNull() != null || subdl == null) -> {
-                openSubtitles.download(url)
-            }
-            subdl != null -> {
-                subdl.download(url)
-            }
-            else -> {
-                throw IllegalStateException("No subtitle provider available to download: $url")
-            }
+        return when (subtitle.provider) {
+            SubtitleProvider.OpenSubtitles -> openSubtitles.download(url)
+            SubtitleProvider.Subdl -> subdl.download(url)
+            SubtitleProvider.YtsSubs -> ytsSubs.download(url)
+            SubtitleProvider.Stremio -> stremioSubtitles.download(url)
         }
     }
 

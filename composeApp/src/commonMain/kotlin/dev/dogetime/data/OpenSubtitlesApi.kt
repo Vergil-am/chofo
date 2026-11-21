@@ -2,6 +2,7 @@ package dev.dogetime.data
 
 import dev.dogetime.Secrets
 import dev.dogetime.domain.Subtitle
+import dev.dogetime.domain.SubtitleProvider
 import dev.dogetime.domain.SubtitleGroup
 import dev.dogetime.domain.WatchTarget
 import io.ktor.client.HttpClient
@@ -154,6 +155,7 @@ private fun OpenSubtitlesData.toDomainList(): List<Subtitle> {
             releaseName = fileRelease,
             language = langName,
             author = attributes.uploader?.name.orEmpty(),
+            provider = SubtitleProvider.OpenSubtitles,
             downloadUrl = file.fileId.toString(),
             hearingImpaired = attributes.hearingImpaired,
             season = attributes.featureDetails?.seasonNumber,

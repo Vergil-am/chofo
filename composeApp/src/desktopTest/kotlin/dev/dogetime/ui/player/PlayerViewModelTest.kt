@@ -2,6 +2,7 @@ package dev.dogetime.ui.player
 
 import dev.dogetime.domain.Subtitle
 import dev.dogetime.domain.SubtitleGroup
+import dev.dogetime.domain.SubtitleProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -26,7 +27,7 @@ class PlayerViewModelTest {
 
     @Test
     fun mergesProvidersIntoOneGroupPerLanguageSortedByName() {
-        fun sub(name: String, language: String) = Subtitle(name, language, author = "", downloadUrl = name)
+        fun sub(name: String, language: String) = Subtitle(name, language, author = "", provider = SubtitleProvider.Subdl, downloadUrl = name)
         val merged = mergeSubtitleGroups(
             listOf(
                 SubtitleGroup("French", listOf(sub("a", "French"))),

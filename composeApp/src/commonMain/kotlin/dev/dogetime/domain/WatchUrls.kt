@@ -1,20 +1,25 @@
 package dev.dogetime.domain
 
+import kotlinx.serialization.Serializable
+
 /**
  * What to watch: a movie, or one episode of a TV show. Ids are TMDB ids; [imdbId] is the movie's
  * or show's IMDb id, when known, for sources that look titles up by it.
  */
+@Serializable
 sealed interface WatchTarget {
     val imdbId: String?
     val kitsuId: Int?
         get() = null
 
+    @Serializable
     data class Movie(
         val id: Int,
         override val imdbId: String? = null,
         override val kitsuId: Int? = null,
     ) : WatchTarget
 
+    @Serializable
     data class Episode(
         val showId: Int,
         val season: Int,

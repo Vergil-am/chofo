@@ -8,9 +8,11 @@ data class Subtitle(
     val language: String,
     /** Who uploaded this subtitle. */
     val author: String,
+    /** Where the subtitle comes from, which decides how [downloadUrl] is downloaded. */
+    val provider: SubtitleProvider,
     /**
-     * Relative URL path used to download the subtitle archive from SubDL's CDN.
-     * Passed to [dev.dogetime.data.SubdlApi.download] — no API key is sent on this request.
+     * What [provider]'s API needs to download the file: an OpenSubtitles file id, a SubDL CDN
+     * path, a YTS Subs page URL, or a Stremio add-on's direct file URL.
      */
     val downloadUrl: String,
     /** Whether this subtitle is for the hearing-impaired (SDH). */
@@ -18,6 +20,16 @@ data class Subtitle(
     val season: Int? = null,
     val episode: Int? = null,
 )
+
+/** The services subtitles are found on. */
+enum class SubtitleProvider {
+    OpenSubtitles,
+    Subdl,
+    YtsSubs,
+
+    /** The Stremio add-ons (OpenSubtitles v3, Anime Kitsu). */
+    Stremio,
+}
 
 /** Subtitles grouped by language, for display in the UI. */
 data class SubtitleGroup(

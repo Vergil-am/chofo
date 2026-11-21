@@ -2,6 +2,7 @@ package dev.dogetime.data
 
 import dev.dogetime.Secrets
 import dev.dogetime.domain.Subtitle
+import dev.dogetime.domain.SubtitleProvider
 import dev.dogetime.domain.SubtitleGroup
 import dev.dogetime.domain.WatchTarget
 import io.ktor.client.HttpClient
@@ -92,6 +93,7 @@ private fun SubdlSubtitle.toDomain(): Subtitle = Subtitle(
     releaseName = releaseName.ifBlank { name },
     language = lang.ifBlank { language },
     author = author,
+    provider = SubtitleProvider.Subdl,
     downloadUrl = url.substringBefore('?'),
     hearingImpaired = hearingImpaired,
     season = season,

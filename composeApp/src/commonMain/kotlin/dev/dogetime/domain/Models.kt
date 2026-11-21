@@ -1,5 +1,7 @@
 package dev.dogetime.domain
 
+import kotlinx.serialization.Serializable
+
 enum class MediaType(val label: String) {
     Movie("Movies"),
     Tv("TV Shows"),
@@ -7,6 +9,7 @@ enum class MediaType(val label: String) {
 }
 
 /** A movie or TV show as shown in lists, rows and search results. */
+@Serializable
 data class MediaItem(
     val id: Int,
     val type: MediaType,

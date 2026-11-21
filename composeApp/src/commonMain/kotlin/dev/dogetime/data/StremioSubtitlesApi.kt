@@ -1,6 +1,7 @@
 package dev.dogetime.data
 
 import dev.dogetime.domain.Subtitle
+import dev.dogetime.domain.SubtitleProvider
 import dev.dogetime.domain.SubtitleGroup
 import dev.dogetime.domain.WatchTarget
 import io.ktor.client.HttpClient
@@ -129,6 +130,7 @@ private data class StremioSubtitleItem(
             releaseName = releaseName,
             language = languageName,
             author = "OpenSubtitles",
+            provider = SubtitleProvider.Stremio,
             downloadUrl = url,
             hearingImpaired = false,
             season = season,

@@ -64,13 +64,10 @@ import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import dev.dogetime.di.AppContainer
-import dev.dogetime.domain.DownloadItem
 import dev.dogetime.domain.DownloadStatus
 import dev.dogetime.domain.MediaItem
-import dev.dogetime.domain.MediaType
-import dev.dogetime.domain.WatchTarget
 import dev.dogetime.navigation.Destination
-import dev.dogetime.navigation.Navigator
+import dev.dogetime.navigation.rememberNavigator
 import dev.dogetime.ui.browse.BrowseScreen
 import dev.dogetime.ui.browse.BrowseViewModel
 import dev.dogetime.ui.components.LocalDownloadedEpisodes
@@ -91,6 +88,7 @@ import dev.dogetime.ui.search.SearchViewModel
 import dev.dogetime.ui.settings.SettingsScreen
 import dev.dogetime.ui.watch.WatchScreen
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 private data class Tab(val destination: Destination, val label: String, val icon: ImageVector)
@@ -206,11 +204,17 @@ private fun rememberNavBarGlass(): GlassStyle {
 
 @Composable
 fun App() {
-    var currentTheme by remember { mutableStateOf(AppTheme.Midnight) }
+    val container = remember { AppContainer() }
+    // Null until the saved theme is read, so the app never shows the wrong theme first.
+    val savedTheme by remember {
+        container.preferences.observeThemeId().map { id -> AppTheme.entries.firstOrNull { it.id == id } ?: AppTheme.Midnight }
+    }.collectAsState(initial = null)
+    val currentTheme = savedTheme ?: return
+    val selectTheme = { theme: AppTheme -> container.preferences.setThemeId(theme.id) }
 
     ChofoTheme(
         theme = currentTheme,
-        onThemeChange = { currentTheme = it },
+        onThemeChange = selectTheme,
     ) {
         // Coil needs a network fetcher before the first poster loads.
         setSingletonImageLoaderFactory { context ->
@@ -219,8 +223,7 @@ fun App() {
                 .build()
         }
 
-        val container = remember { AppContainer() }
-        val navigator = remember { Navigator() }
+        val navigator = rememberNavigator()
         val appUiScope = rememberCoroutineScope()
         var offlineLookup by remember { mutableStateOf<Job?>(null) }
 
@@ -329,7 +332,7 @@ fun App() {
                                         )
                                         Destination.Settings -> SettingsScreen(
                                             currentTheme = currentTheme,
-                                            onThemeSelect = { currentTheme = it },
+                                            onThemeSelect = selectTheme,
                                             viewModel = settingsViewModel,
                                             modifier = destModifier,
                                             bottomInset = bottomInset,
@@ -343,35 +346,18 @@ fun App() {
                                             watchHistory = container.watchHistory,
                                             onBack = { navigator.back() },
                                             onWatch = { target, title, backdropUrl, mediaItem ->
-                                                val downloadedItem = when (target) {
-                                                    is WatchTarget.Movie -> {
-                                                        completedDownloads.firstOrNull {
-                                                            it.status == DownloadStatus.COMPLETED &&
-                                                                (it.isFor(mediaItem?.type, target.id) ||
-                                                                    (it.season == null && it.episode == null && it.title.equals(title, ignoreCase = true)))
-                                                        }
-                                                    }
-                                                    is WatchTarget.Episode -> {
-                                                        completedDownloads.firstOrNull {
-                                                            it.status == DownloadStatus.COMPLETED &&
-                                                                (it.isFor(mediaItem?.type, target.showId) || it.title.contains(title, ignoreCase = true)) &&
-                                                                it.season == target.season &&
-                                                                it.episode == target.episode
-                                                        }
-                                                    }
-                                                }
-                                                if (downloadedItem == null) {
-                                                    navigator.open(Destination.Watch(target, title, backdropUrl, mediaItem))
-                                                } else if (offlineLookup?.isActive != true) {
-                                                    // Checking the file touches the disk, so do it off the main thread.
-                                                    // The guard stops a double tap from opening the player twice.
+                                                // The lookup reads the database and disk, so it runs off the main
+                                                // thread. The guard stops a double tap from opening the player twice.
+                                                if (offlineLookup?.isActive != true) {
                                                     offlineLookup = appUiScope.launch {
-                                                        val playable = container.downloadManager.resolveOfflinePlayback(downloadedItem)
-                                                        if (playable.videoFilePath != null) {
-                                                            navigator.open(Destination.OfflineWatch(playable))
-                                                        } else {
-                                                            navigator.open(Destination.Watch(target, title, backdropUrl, mediaItem))
-                                                        }
+                                                        val copy = container.offlineCopies.findOfflineCopy(target, title, mediaItem?.type)
+                                                        navigator.open(
+                                                            if (copy != null) {
+                                                                Destination.OfflineWatch(copy)
+                                                            } else {
+                                                                Destination.Watch(target, title, backdropUrl, mediaItem)
+                                                            },
+                                                        )
                                                     }
                                                 }
                                             },
@@ -560,10 +546,3 @@ private fun NavBarTabItem(
         )
     }
 }
-
-/**
- * Whether this download is of the title with [id]. The type has to match too when both sides know
- * it: anime ids come from Kitsu and TV and movie ids from TMDB, so the same number can be two titles.
- */
-private fun DownloadItem.isFor(type: MediaType?, id: Int): Boolean =
-    mediaId == id && (type == null || mediaType == null || mediaType == type)

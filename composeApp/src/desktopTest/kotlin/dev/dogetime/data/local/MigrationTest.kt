@@ -38,7 +38,7 @@ class MigrationTest {
             )
         }
 
-        helper.runMigrationsAndValidate(4, ALL_MIGRATIONS.toList()).use { db ->
+        helper.runMigrationsAndValidate(5, ALL_MIGRATIONS.toList()).use { db ->
             assertEquals(listOf("Fight Club"), db.strings("SELECT title FROM favorites"))
         }
     }
@@ -74,6 +74,23 @@ class MigrationTest {
 
         helper.runMigrationsAndValidate(4, listOf(MIGRATION_3_4)).use { db ->
             assertTrue(db.strings("SELECT id FROM downloads").isEmpty())
+        }
+    }
+
+    @Test
+    fun migrate4To5AddsPreferencesTableAndKeepsDownloads() {
+        helper.createDatabase(4).use { db ->
+            db.execSQL(
+                "INSERT INTO downloads (id, title, magnet, infoHash, quality, totalBytes, downloadedBytes, " +
+                    "progress, downloadRate, peers, status, createdAt) " +
+                    "VALUES ('abc_movie', 'Fight Club', 'magnet:', 'abc', '1080p', 0, 0, 0, 0, 0, 'COMPLETED', 1)",
+            )
+        }
+
+        helper.runMigrationsAndValidate(5, listOf(MIGRATION_4_5)).use { db ->
+            assertEquals(listOf("Fight Club"), db.strings("SELECT title FROM downloads"))
+            db.execSQL("INSERT INTO preferences (`key`, value) VALUES ('theme', 'mocha')")
+            assertEquals(listOf("mocha"), db.strings("SELECT value FROM preferences"))
         }
     }
 
