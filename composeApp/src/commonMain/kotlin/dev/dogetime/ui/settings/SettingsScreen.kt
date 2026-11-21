@@ -32,12 +32,8 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,9 +49,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.dogetime.AppConfig
 import dev.dogetime.AppTheme
-import dev.dogetime.data.UpdateChecker
 import dev.dogetime.data.UpdateStatus
-import kotlinx.coroutines.launch
 
 private val GithubIcon = ImageVector.Builder(
     name = "Github",
@@ -324,30 +318,13 @@ private val SocialLinks = listOf(
 fun SettingsScreen(
     currentTheme: AppTheme,
     onThemeSelect: (AppTheme) -> Unit,
-    updateChecker: UpdateChecker? = null,
+    viewModel: SettingsViewModel,
     modifier: Modifier = Modifier,
     bottomInset: Dp = 0.dp,
 ) {
     val scrollState = rememberScrollState()
     val uriHandler = LocalUriHandler.current
-    val coroutineScope = rememberCoroutineScope()
-
-    var updateStatus by remember { mutableStateOf<UpdateStatus>(UpdateStatus.Idle) }
-
-    fun triggerCheck() {
-        if (updateChecker != null && updateStatus !is UpdateStatus.Checking) {
-            updateStatus = UpdateStatus.Checking
-            coroutineScope.launch {
-                updateStatus = updateChecker.checkForUpdates(AppConfig.APP_VERSION)
-            }
-        }
-    }
-
-    LaunchedEffect(updateChecker) {
-        if (updateChecker != null && updateStatus is UpdateStatus.Idle) {
-            triggerCheck()
-        }
-    }
+    val updateStatus by viewModel.updateStatus.collectAsState()
 
     Column(
         modifier = modifier
@@ -599,7 +576,7 @@ fun SettingsScreen(
                                 )
                             }
                             Button(
-                                onClick = ::triggerCheck,
+                                onClick = viewModel::checkForUpdates,
                                 shape = RoundedCornerShape(12.dp),
                             ) {
                                 Icon(RefreshIcon, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -677,7 +654,7 @@ fun SettingsScreen(
                                 }
                             }
                             OutlinedButton(
-                                onClick = ::triggerCheck,
+                                onClick = viewModel::checkForUpdates,
                                 shape = RoundedCornerShape(12.dp),
                             ) {
                                 Text("Check again")
@@ -814,7 +791,7 @@ fun SettingsScreen(
                                 )
                             }
                             Button(
-                                onClick = ::triggerCheck,
+                                onClick = viewModel::checkForUpdates,
                                 shape = RoundedCornerShape(12.dp),
                             ) {
                                 Text("Retry")

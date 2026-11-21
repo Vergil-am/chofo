@@ -28,78 +28,33 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.dogetime.data.OpenSubtitlesApi
-import dev.dogetime.data.StremioSubtitlesApi
-import dev.dogetime.data.SubdlApi
 import dev.dogetime.domain.Subtitle
 import dev.dogetime.domain.TorrentOption
-import dev.dogetime.domain.WatchTarget
 import dev.dogetime.ui.player.PlayerIcons
-import kotlinx.coroutines.CancellationException
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DownloadTorrentDialog(
-    option: TorrentOption,
-    target: WatchTarget,
+    choice: DownloadChoice,
     title: String,
     onDismissRequest: () -> Unit,
     onConfirm: (option: TorrentOption, selectedSubtitle: Subtitle?) -> Unit,
-    openSubtitles: OpenSubtitlesApi? = null,
-    subdl: SubdlApi? = null,
-    stremioSubtitles: StremioSubtitlesApi? = null,
 ) {
-    var availableSubtitles by remember { mutableStateOf<List<Subtitle>>(emptyList()) }
-    var isLoadingSubtitles by remember { mutableStateOf(true) }
-    var selectedSubtitle by remember { mutableStateOf<Subtitle?>(null) }
-
-    LaunchedEffect(target) {
-        isLoadingSubtitles = true
-        try {
-            val list = mutableListOf<Subtitle>()
-            if (stremioSubtitles != null) {
-                runCatching {
-                    stremioSubtitles.search(target).forEach { group ->
-                        list.addAll(group.subtitles)
-                    }
-                }
-            }
-            if (list.isEmpty() && openSubtitles != null) {
-                runCatching {
-                    openSubtitles.search(target).forEach { group ->
-                        list.addAll(group.subtitles)
-                    }
-                }
-            }
-            if (list.isEmpty() && subdl != null) {
-                runCatching {
-                    subdl.search(target).forEach { group ->
-                        list.addAll(group.subtitles)
-                    }
-                }
-            }
-            availableSubtitles = list.distinctBy { "${it.language}-${it.releaseName}" }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            // graceful fallback to empty
-        } finally {
-            isLoadingSubtitles = false
-        }
-    }
+    val option = choice.option
+    val availableSubtitles = choice.subtitles
+    val isLoadingSubtitles = choice.isLoadingSubtitles
+    var selectedSubtitle by remember(option) { mutableStateOf<Subtitle?>(null) }
 
     BasicAlertDialog(
         onDismissRequest = onDismissRequest,
@@ -306,7 +261,6 @@ fun DownloadTorrentDialog(
                 Button(
                     onClick = {
                         onConfirm(option, selectedSubtitle)
-                        onDismissRequest()
                     },
                     shape = RoundedCornerShape(12.dp),
                 ) {

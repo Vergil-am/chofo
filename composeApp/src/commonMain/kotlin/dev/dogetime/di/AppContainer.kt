@@ -19,6 +19,8 @@ import dev.dogetime.data.createHttpClient
 import dev.dogetime.data.local.createDatabase
 import dev.dogetime.ui.player.PlaybackSource
 import dev.dogetime.ui.player.PlayerViewModel
+import dev.dogetime.ui.watch.WatchViewModel
+import dev.dogetime.navigation.Destination
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -65,5 +67,17 @@ class AppContainer {
         subdl = subdl,
         openSubtitles = openSubtitles,
         ytsSubs = ytsSubs,
+    )
+
+    fun watchViewModel(destination: Destination.Watch): WatchViewModel = WatchViewModel(
+        target = destination.target,
+        title = destination.title,
+        mediaItem = destination.mediaItem,
+        backdropUrl = destination.backdropUrl,
+        torrentio = torrentio,
+        downloadManager = downloadManager,
+        stremioSubtitles = stremioSubtitles,
+        openSubtitles = openSubtitles,
+        subdl = subdl,
     )
 }

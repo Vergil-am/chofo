@@ -7,12 +7,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -27,13 +25,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,15 +37,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.dogetime.core.UiState
-import dev.dogetime.core.runForUiState
-import dev.dogetime.data.OpenSubtitlesApi
-import dev.dogetime.data.StremioSubtitlesApi
-import dev.dogetime.data.SubdlApi
 import dev.dogetime.data.TorrentProvider
-import dev.dogetime.data.TorrentioApi
 import dev.dogetime.domain.Subtitle
 import dev.dogetime.domain.TorrentOption
-import dev.dogetime.domain.WatchTarget
 import dev.dogetime.ui.components.dragToScroll
 import dev.dogetime.ui.player.PlayerIcons
 
@@ -73,49 +63,41 @@ private val TorrentOption.group: QualityGroup
     }
 
 /**
- * Torrents listed for [target], best quality first, filtered by [QualityGroup]
- * (Full HD at first); picking one plays it.
+ * The [torrents] [provider] lists for the title, best quality first, filtered by [QualityGroup]
+ * (Full HD at first); picking one plays it. With [onChooseDownload], each row also has a download
+ * button, which opens the download dialog for [downloadChoice].
  */
 @Composable
 internal fun TorrentPicker(
-    target: WatchTarget,
-    torrentio: TorrentioApi,
     title: String,
     backdropUrl: String?,
+    provider: TorrentProvider,
+    torrents: UiState<List<TorrentOption>>,
+    downloadChoice: DownloadChoice?,
+    onSelectProvider: (TorrentProvider) -> Unit,
+    onRetry: () -> Unit,
     onBack: () -> Unit,
     onChangeSource: () -> Unit,
     onPick: (TorrentOption) -> Unit,
-    onDownload: ((TorrentOption, Subtitle?) -> Unit)? = null,
-    openSubtitles: OpenSubtitlesApi? = null,
-    subdl: SubdlApi? = null,
-    stremioSubtitles: StremioSubtitlesApi? = null,
+    onChooseDownload: ((TorrentOption) -> Unit)?,
+    onDismissDownload: () -> Unit,
+    onDownload: (TorrentOption, Subtitle?) -> Unit,
     modifier: Modifier = Modifier,
-    initialProvider: TorrentProvider = TorrentProvider.Torrentio,
 ) {
-    var provider by remember(target, initialProvider) { mutableStateOf(initialProvider) }
-    var options by remember(target, provider) { mutableStateOf<UiState<List<TorrentOption>>>(UiState.Loading) }
-    // "Try again" bumps this to fetch the list again.
-    var attempt by remember(target, provider) { mutableIntStateOf(0) }
-    var group by remember(target, provider) { mutableStateOf(QualityGroup.FullHd) }
-    var torrentToDownload by remember { mutableStateOf<TorrentOption?>(null) }
-
-    LaunchedEffect(target, attempt, provider) {
-        options = UiState.Loading
-        options = runForUiState { torrentio.streams(target, provider) }
-    }
+    var group by remember(provider) { mutableStateOf(QualityGroup.FullHd) }
 
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (backdropUrl != null) BlurredBackdrop(backdropUrl, Modifier.fillMaxSize())
         WatchPage(title = title, pageShown = false, onBack = onBack, onChangeSource = onChangeSource) {
             Column(Modifier.fillMaxSize()) {
-                ProviderChips(selected = provider, onSelect = { provider = it })
-                when (val state = options) {
+                ProviderChips(selected = provider, onSelect = onSelectProvider)
+                when (val state = torrents) {
                     UiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
-                    is UiState.Error -> Message(state.message, onRetry = { attempt++ })
+                    is UiState.Error -> Message(state.message, onRetry = onRetry)
                     is UiState.Success -> if (state.data.isEmpty()) {
-                        Message("No torrents found on ${provider.displayName} for this title.", onRetry = { attempt++ })
+                        Message("No torrents found on ${provider.displayName} for this title.", onRetry = onRetry)
                     } else {
                         val shown = remember(state.data, group) { state.data.filter { it.group == group } }
                         QualityChips(selected = group, onSelect = { group = it })
@@ -138,9 +120,7 @@ internal fun TorrentPicker(
                                 TorrentRow(
                                     option = option,
                                     onClick = { onPick(option) },
-                                    onDownloadClick = if (onDownload != null) {
-                                        { torrentToDownload = option }
-                                    } else null,
+                                    onDownloadClick = onChooseDownload?.let { choose -> { choose(option) } },
                                 )
                             }
                         }
@@ -149,18 +129,12 @@ internal fun TorrentPicker(
             }
         }
 
-        torrentToDownload?.let { opt ->
+        downloadChoice?.let { choice ->
             DownloadTorrentDialog(
-                option = opt,
-                target = target,
+                choice = choice,
                 title = title,
-                onDismissRequest = { torrentToDownload = null },
-                onConfirm = { chosenOption, chosenSubtitle ->
-                    onDownload?.invoke(chosenOption, chosenSubtitle)
-                },
-                openSubtitles = openSubtitles,
-                subdl = subdl,
-                stremioSubtitles = stremioSubtitles,
+                onDismissRequest = onDismissDownload,
+                onConfirm = onDownload,
             )
         }
     }

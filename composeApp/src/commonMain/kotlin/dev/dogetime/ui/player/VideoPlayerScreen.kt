@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.dogetime.core.CapturedStream
+import dev.dogetime.core.rememberViewModel
 import dev.dogetime.domain.Subtitle
 import dev.dogetime.domain.SubtitleGroup
 import kotlinx.coroutines.delay
@@ -109,10 +110,7 @@ fun VideoPlayerScreen(
     modifier: Modifier = Modifier,
 ) {
     // Sources are data classes, so an equal source on recomposition keeps the same ViewModel.
-    val viewModel = remember(source) { createViewModel(source) }
-    DisposableEffect(viewModel) {
-        onDispose { viewModel.clear() }
-    }
+    val viewModel = rememberViewModel(source) { createViewModel(source) }
     val state by viewModel.state.collectAsState()
 
     PlayerSystemUiEffect()

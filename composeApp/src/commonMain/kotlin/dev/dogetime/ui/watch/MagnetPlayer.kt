@@ -11,14 +11,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -38,7 +38,7 @@ import kotlinx.coroutines.delay
 private const val MESSAGE_DURATION_MS = 4_000L
 
 /** A torrent to play: its magnet link, and which of its files to play (see [Torrents.open]). */
-internal data class TorrentPick(
+data class TorrentPick(
     val magnet: String,
     val fileName: String?,
     val fileIndex: Int?,

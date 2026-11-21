@@ -1,8 +1,6 @@
 package dev.dogetime.ui.downloads
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,8 +21,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -32,7 +28,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,32 +39,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import dev.dogetime.core.TorrentDownloadManager
-import dev.dogetime.data.WatchHistoryRepository
 import dev.dogetime.domain.DownloadItem
 import dev.dogetime.domain.DownloadStatus
-import dev.dogetime.domain.MediaType
 import dev.dogetime.domain.WatchHistoryItem
 import dev.dogetime.ui.player.PlayerIcons
-import kotlinx.coroutines.flow.flowOf
 
 @Composable
 fun DownloadsScreen(
-    downloadManager: TorrentDownloadManager,
+    viewModel: DownloadsViewModel,
     onPlayDownload: (DownloadItem) -> Unit,
     modifier: Modifier = Modifier,
-    watchHistory: WatchHistoryRepository? = null,
     bottomInset: Dp = 0.dp,
 ) {
-    // remember: each observeAll() call makes a new Flow, and collectAsState restarts (a fresh DB
-    // query) whenever it gets a new one, which would be every recomposition.
-    val downloads by remember(downloadManager) { downloadManager.repository.observeAll() }
-        .collectAsState(initial = emptyList())
-    val watchHistoryItems by remember(watchHistory) { watchHistory?.observeAll() ?: flowOf(emptyList()) }
-        .collectAsState(initial = emptyList())
-    val historyMap = remember(watchHistoryItems) {
-        watchHistoryItems.associateBy { it.watchKey }
-    }
+    val loaded by viewModel.downloads.collectAsState()
 
     Column(
         modifier = modifier
@@ -93,6 +75,7 @@ fun DownloadsScreen(
 
         Spacer(Modifier.height(20.dp))
 
+        val downloads = loaded ?: return@Column
         if (downloads.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -138,14 +121,14 @@ fun DownloadsScreen(
                 contentPadding = PaddingValues(bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                items(downloads, key = { it.id }) { item ->
+                items(downloads, key = { it.item.id }) { (item, watchProgress) ->
                     DownloadCard(
                         item = item,
-                        watchProgress = item.watchKey()?.let { historyMap[it] },
+                        watchProgress = watchProgress,
                         onPlay = { onPlayDownload(item) },
-                        onPause = { downloadManager.pauseDownload(item.id) },
-                        onResume = { downloadManager.resumeDownload(item.id) },
-                        onCancel = { downloadManager.cancelDownload(item.id, deleteFiles = true) },
+                        onPause = { viewModel.pause(item) },
+                        onResume = { viewModel.resume(item) },
+                        onCancel = { viewModel.cancel(item) },
                     )
                 }
             }
@@ -464,17 +447,6 @@ private fun DownloadCard(
                 }
             }
         }
-    }
-}
-
-/** The watch-history key for this download, or null when it has no TMDB id (and so no history). */
-private fun DownloadItem.watchKey(): String? {
-    val resolvedId = mediaId ?: return null
-    val resolvedType = mediaType ?: if (season != null) MediaType.Tv else MediaType.Movie
-    return if (season != null && episode != null) {
-        "${resolvedType.name}:$resolvedId:$season:$episode"
-    } else {
-        "${resolvedType.name}:$resolvedId"
     }
 }
 

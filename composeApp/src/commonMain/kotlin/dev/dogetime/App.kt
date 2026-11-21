@@ -80,7 +80,10 @@ import dev.dogetime.ui.components.LocalSharedTransitionScope
 import dev.dogetime.ui.details.DetailsScreen
 import dev.dogetime.ui.downloads.DownloadsScreen
 import dev.dogetime.ui.home.HomeScreen
+import dev.dogetime.ui.downloads.DownloadsViewModel
 import dev.dogetime.ui.home.HomeViewModel
+import dev.dogetime.ui.settings.SettingsViewModel
+import dev.dogetime.core.rememberViewModel
 import dev.dogetime.ui.player.PlaybackSource
 import dev.dogetime.ui.player.VideoPlayerScreen
 import dev.dogetime.ui.search.SearchScreen
@@ -236,11 +239,15 @@ fun App() {
         val homeViewModel = remember { HomeViewModel(container.repository, container.favorites, container.watchHistory) }
         val browseViewModel = remember { BrowseViewModel(container.repository) }
         val searchViewModel = remember { SearchViewModel(container.repository) }
+        val downloadsViewModel = remember { DownloadsViewModel(container.downloadManager, container.watchHistory) }
+        val settingsViewModel = remember { SettingsViewModel(container.updateChecker) }
         DisposableEffect(Unit) {
             onDispose {
                 homeViewModel.clear()
                 browseViewModel.clear()
                 searchViewModel.clear()
+                downloadsViewModel.clear()
+                settingsViewModel.clear()
             }
         }
 
@@ -313,8 +320,7 @@ fun App() {
                                             bottomInset = bottomInset,
                                         )
                                         Destination.Downloads -> DownloadsScreen(
-                                            downloadManager = container.downloadManager,
-                                            watchHistory = container.watchHistory,
+                                            viewModel = downloadsViewModel,
                                             onPlayDownload = { item ->
                                                 navigator.open(Destination.OfflineWatch(item))
                                             },
@@ -324,7 +330,7 @@ fun App() {
                                         Destination.Settings -> SettingsScreen(
                                             currentTheme = currentTheme,
                                             onThemeSelect = { currentTheme = it },
-                                            updateChecker = container.updateChecker,
+                                            viewModel = settingsViewModel,
                                             modifier = destModifier,
                                             bottomInset = bottomInset,
                                         )
@@ -373,14 +379,12 @@ fun App() {
                                             modifier = destModifier,
                                         )
                                         is Destination.Watch -> WatchScreen(
+                                            viewModel = rememberViewModel(targetDestination) {
+                                                container.watchViewModel(targetDestination)
+                                            },
                                             target = targetDestination.target,
                                             title = targetDestination.title,
-                                            torrentio = container.torrentio,
-                                            subdl = container.subdl,
-                                            openSubtitles = container.openSubtitles,
-                                            stremioSubtitles = container.stremioSubtitles,
                                             createPlayerViewModel = container::playerViewModel,
-                                            downloadManager = container.downloadManager,
                                             backdropUrl = targetDestination.backdropUrl,
                                             mediaItem = targetDestination.mediaItem,
                                             onBack = { navigator.back() },
