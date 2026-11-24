@@ -8,6 +8,9 @@ import dev.dogetime.data.KitsuMappingRepository
 import dev.dogetime.data.MediaRepository
 import dev.dogetime.data.OfflineCopyFinder
 import dev.dogetime.data.PreferencesRepository
+import dev.dogetime.data.SimklApi
+import dev.dogetime.data.SimklPlaybackImporter
+import dev.dogetime.data.SimklRepository
 import dev.dogetime.data.OpenSubtitlesApi
 import dev.dogetime.data.StremioSubtitlesApi
 import dev.dogetime.data.SubdlApi
@@ -47,6 +50,8 @@ class AppContainer {
     val watchHistory: WatchHistoryRepository = WatchHistoryRepository(database.watchHistoryDao(), appScope)
     val updateChecker: UpdateChecker = UpdateChecker(httpClient)
     val preferences: PreferencesRepository = PreferencesRepository(database.preferenceDao(), appScope)
+    val simkl: SimklRepository = SimklRepository(SimklApi(httpClient), database.preferenceDao(), appScope)
+    val simklImport: SimklPlaybackImporter = SimklPlaybackImporter(simkl, watchHistory, repository, appScope)
 
     val downloadRepository: DownloadRepository = DownloadRepository(database.downloadDao())
     val subtitleDownloader: SubtitleDownloader = SubtitleDownloader(
@@ -72,6 +77,7 @@ class AppContainer {
         subdl = subdl,
         openSubtitles = openSubtitles,
         ytsSubs = ytsSubs,
+        scrobbler = simkl,
     )
 
     fun watchViewModel(destination: Destination.Watch): WatchViewModel = WatchViewModel(

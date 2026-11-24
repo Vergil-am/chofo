@@ -225,7 +225,17 @@ private fun PlayerContent(
     // Mark the video finished as soon as it ends.
     LaunchedEffect(controller.isEnded) {
         val dur = controller.durationMs
-        if (controller.isEnded && dur > 0) viewModel.saveProgress(dur, dur)
+        if (controller.isEnded && dur > 0) {
+            viewModel.saveProgress(dur, dur)
+            viewModel.onPlaybackEnded()
+        }
+    }
+
+    // Tell the tracker when the user plays or pauses, once the duration is known.
+    LaunchedEffect(controller.isPlaying, isReady) {
+        if (isReady && !controller.isEnded) {
+            viewModel.onPlayingChanged(controller.isPlaying, controller.positionMs, controller.durationMs)
+        }
     }
 
     // Save the final position on exit. It is read now, before the controller is released, and

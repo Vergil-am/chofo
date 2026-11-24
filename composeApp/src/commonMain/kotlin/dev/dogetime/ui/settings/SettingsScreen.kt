@@ -443,6 +443,10 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(36.dp))
 
+        SimklSection(viewModel)
+
+        Spacer(Modifier.height(36.dp))
+
         // Connect & Socials Section
         Text(
             text = "Connect",

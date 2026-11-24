@@ -46,6 +46,8 @@ class HomeViewModel(
     private val repository: MediaRepository,
     favoritesRepository: FavoritesRepository,
     watchHistoryRepository: WatchHistoryRepository? = null,
+    /** Asks the tracker for sessions left unfinished elsewhere; they land in the watch history. */
+    private val syncContinueWatching: () -> Unit = {},
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HomeContent())
@@ -65,6 +67,7 @@ class HomeViewModel(
     }
 
     fun load() {
+        syncContinueWatching()
         _state.value = HomeContent(
             isLoadingPopularMovies = true,
             isLoadingPopularTv = true,

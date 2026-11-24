@@ -13,4 +13,7 @@ interface PreferenceDao {
 
     @Upsert
     suspend fun upsert(preference: PreferenceEntity)
+
+    @Query("DELETE FROM preferences WHERE `key` = :key")
+    suspend fun delete(key: String)
 }
