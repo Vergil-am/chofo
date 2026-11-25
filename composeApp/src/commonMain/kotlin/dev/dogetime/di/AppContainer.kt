@@ -52,7 +52,7 @@ class AppContainer {
     val updateChecker: UpdateChecker = UpdateChecker(httpClient)
     val preferences: PreferencesRepository = PreferencesRepository(database.preferenceDao(), appScope)
 
-    private val chofoApi = ChofoApi(Secrets.CHOFO_API_URL)
+    val chofoApi = ChofoApi(Secrets.CHOFO_API_URL)
     val accounts: AccountRepository = AccountRepository(chofoApi, database.preferenceDao(), appScope)
     val watchSync: WatchSync = WatchSync(
         api = chofoApi,

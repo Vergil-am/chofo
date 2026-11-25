@@ -127,6 +127,10 @@ kotlin {
             implementation(libs.androidx.webkit)
             implementation(libs.mpv.android)
             implementation(libs.ktor.client.okhttp)
+            // Sign in with Google through Android's Credential Manager.
+            implementation(libs.androidx.credentials)
+            implementation(libs.androidx.credentials.play.services)
+            implementation(libs.googleid)
         }
         getByName("desktopMain").dependencies {
             implementation(compose.desktop.currentOs)

@@ -38,6 +38,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import dev.dogetime.data.sync.GoogleSignIn
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.HorizontalDivider
 
 /**
  * Sign in or create an account. On first launch ([isWelcome]) it explains what an account is
@@ -46,6 +50,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun AuthScreen(
     viewModel: AccountViewModel,
+    googleSignIn: GoogleSignIn?,
     isWelcome: Boolean,
     onDone: () -> Unit,
     onDismiss: () -> Unit,
@@ -100,6 +105,43 @@ fun AuthScreen(
             )
 
             Spacer(Modifier.height(8.dp))
+
+            if (googleSignIn != null) {
+                OutlinedButton(
+                    onClick = { viewModel.signInWithGoogle(googleSignIn, onDone) },
+                    enabled = !form.isBusy,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    if (form.isGoogleBusy) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Waiting for Google…")
+                    } else {
+                        Text("G", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Continue with Google")
+                    }
+                }
+                if (form.isGoogleBusy) {
+                    Text(
+                        text = "Finish signing in with Google. On a computer, that's in your browser.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                    TextButton(onClick = viewModel::cancelGoogle) { Text("Cancel Google sign-in") }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    HorizontalDivider(Modifier.weight(1f))
+                    Text(
+                        "  or with a username  ",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    HorizontalDivider(Modifier.weight(1f))
+                }
+            }
 
             OutlinedTextField(
                 value = username,

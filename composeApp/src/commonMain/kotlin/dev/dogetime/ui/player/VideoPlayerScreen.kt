@@ -222,10 +222,17 @@ private fun PlayerContent(
         }
     }
 
-    // Mark the video finished as soon as it ends.
+    // Mark the video finished as soon as it ends, and sync it.
     LaunchedEffect(controller.isEnded) {
         val dur = controller.durationMs
-        if (controller.isEnded && dur > 0) viewModel.saveProgress(dur, dur)
+        if (controller.isEnded && dur > 0) viewModel.saveProgress(dur, dur, urgent = true)
+    }
+
+    // Play and pause save the position and sync it to the account (a few seconds later, so a
+    // quick pause and resume is one request).
+    LaunchedEffect(controller.isPlaying) {
+        val dur = controller.durationMs
+        if (dur > 0 && !controller.isEnded) viewModel.saveProgress(currentPosition(), dur, urgent = true)
     }
 
     // Save the final position on exit. It is read now, before the controller is released, and

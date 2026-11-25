@@ -16,6 +16,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import io.ktor.client.engine.mock.respond
 import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -71,7 +72,7 @@ class WatchSyncIntegrationTest {
         val history = WatchHistoryRepository(db.watchHistoryDao(), scope)
         val accounts = AccountRepository(api, db.preferenceDao(), scope)
         // Long delays: the test runs every sync itself.
-        val sync = WatchSync(api, accounts, db.watchHistoryDao(), db.preferenceDao(), null, scope, pushDelayMs = 3_600_000, urgentDelayMs = 3_600_000)
+        val sync = WatchSync(api, accounts, db.watchHistoryDao(), db.preferenceDao(), null, scope, urgentDelayMs = 3_600_000)
             .also { history.listener = it }
 
         init {
@@ -165,5 +166,85 @@ class WatchSyncIntegrationTest {
         assertNull(device.accounts.account.value)
         assertTrue(device.sync.status.value.error!!.contains("sign in again", ignoreCase = true))
         assertNotNull(device.row(MediaType.Movie, 550))
+    }
+}
+
+/** When the app talks to the server: only on play, pause, end, close and background. */
+class WatchSyncTriggerTest {
+    private val db = Room.inMemoryDatabaseBuilder<AppDatabase>().setDriver(BundledSQLiteDriver()).setQueryCoroutineContext(Dispatchers.IO).build()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val pushes = java.util.concurrent.atomic.AtomicInteger()
+    private val show = MediaItem(1, MediaType.Tv, "Show", "", null, null, 7.0, "2024")
+
+    private val client = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine) {
+        engine {
+            addHandler { request ->
+                val json = io.ktor.http.headersOf("Content-Type", "application/json")
+                when (request.url.encodedPath) {
+                    "/v1/progress/batch" -> {
+                        pushes.incrementAndGet()
+                        val sent = (request.body as io.ktor.http.content.TextContent).text
+                        val items = ChofoApi.json.decodeFromString<Map<String, List<ApiProgressWrite>>>(sent).getValue("items")
+                        val rows = items.mapIndexed { i, w -> ApiProgressRow(w.type, w.id, w.season, w.episode, w.positionMs, w.durationMs, w.watchedAt, rev = i + 1L) }
+                        respond(ChofoApi.json.encodeToString(mapOf("items" to rows)), io.ktor.http.HttpStatusCode.OK, json)
+                    }
+                    "/v1/progress" -> respond("""{"items":[],"next_cursor":0,"has_more":false}""", io.ktor.http.HttpStatusCode.OK, json)
+                    else -> respond("{}", io.ktor.http.HttpStatusCode.NotFound, json)
+                }
+            }
+        }
+    }
+
+    private suspend fun signedIn(): Pair<WatchHistoryRepository, WatchSync> {
+        db.preferenceDao().upsert(dev.dogetime.data.local.PreferenceEntity("chofo_account", """{"userId":"u","username":"neo","email":"","token":"t"}"""))
+        val api = ChofoApi("http://api.test", client)
+        val accounts = AccountRepository(api, db.preferenceDao(), scope)
+        val history = WatchHistoryRepository(db.watchHistoryDao(), scope)
+        val sync = WatchSync(api, accounts, db.watchHistoryDao(), db.preferenceDao(), null, scope, urgentDelayMs = 300)
+        history.listener = sync
+        accounts.awaitLoaded()
+        // The start-up sync runs first; count from after it.
+        withTimeout(5_000) { while (sync.status.value.lastSyncedAt == null) delay(20) }
+        pushes.set(0)
+        return history to sync
+    }
+
+    @AfterTest
+    fun tearDown() = runBlocking {
+        scope.coroutineContext.job.cancelAndJoin()
+        delay(200)
+        db.close()
+    }
+
+    @Test
+    fun periodicSavesStayOnTheDevice() = runBlocking {
+        val (history, _) = signedIn()
+        repeat(5) { history.saveProgress(WatchTarget.Episode(1, 1, 1), show, 10_000L * (it + 1), 3_600_000) }
+        delay(1_000)
+        assertEquals(0, pushes.get())
+    }
+
+    @Test
+    fun playPauseAndCloseSendOnceAFewSecondsLater() = runBlocking {
+        val (history, _) = signedIn()
+        // Pause and resume in quick succession: one request.
+        history.saveProgress(WatchTarget.Episode(1, 1, 1), show, 60_000, 3_600_000, urgent = true)
+        history.saveProgress(WatchTarget.Episode(1, 1, 1), show, 61_000, 3_600_000, urgent = true)
+        assertEquals(0, pushes.get()) // not yet: it waits a moment
+        withTimeout(5_000) { while (pushes.get() < 1) delay(20) }
+        delay(600)
+        assertEquals(1, pushes.get())
+    }
+
+    @Test
+    fun backgroundSendsOnlyWhenSomethingChanged() = runBlocking {
+        val (history, sync) = signedIn()
+        sync.flush()
+        assertEquals(0, pushes.get()) // nothing unsent
+        history.saveProgress(WatchTarget.Episode(1, 1, 1), show, 90_000, 3_600_000)
+        sync.flush()
+        assertEquals(1, pushes.get())
+        sync.flush()
+        assertEquals(1, pushes.get()) // already sent
     }
 }

@@ -262,10 +262,17 @@ fun App() {
         val onboardingDone by remember { container.accounts.onboardingDone }.collectAsState(initial = null)
         // Sign-in opened from Settings.
         var showSignIn by remember { mutableStateOf(false) }
+        val googleSignIn = dev.dogetime.data.sync.rememberGoogleSignIn(container.chofoApi)
+        // Send unsynced watch progress when the app leaves the screen or (desktop) closes.
+        dev.dogetime.core.OnAppBackground { container.watchSync.onBackground() }
+        DisposableEffect(container) {
+            dev.dogetime.core.AppShutdown.register { container.watchSync.flush() }
+            onDispose { }
+        }
         when (onboardingDone) {
             null -> return@ChofoTheme
             false -> {
-                AuthScreen(viewModel = accountViewModel, isWelcome = true, onDone = {}, onDismiss = {})
+                AuthScreen(viewModel = accountViewModel, googleSignIn = googleSignIn, isWelcome = true, onDone = {}, onDismiss = {})
                 return@ChofoTheme
             }
             true -> Unit
@@ -439,6 +446,7 @@ fun App() {
                     if (showSignIn) {
                         AuthScreen(
                             viewModel = accountViewModel,
+                            googleSignIn = googleSignIn,
                             isWelcome = false,
                             onDone = { showSignIn = false },
                             onDismiss = { showSignIn = false },

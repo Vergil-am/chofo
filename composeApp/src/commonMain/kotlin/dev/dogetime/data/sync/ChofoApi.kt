@@ -34,6 +34,22 @@ data class ApiUser(
 @Serializable
 data class AuthResponse(val token: String, val user: ApiUser)
 
+@Serializable
+private data class SessionToken(val token: String)
+
+/** `POST /auth/one-time-token/verify` answers with the session itself. */
+@Serializable
+private data class SessionResponse(val session: SessionToken, val user: ApiUser)
+
+@Serializable
+private data class IdToken(val token: String)
+
+@Serializable
+private data class SocialIdTokenBody(val provider: String, val idToken: IdToken)
+
+@Serializable
+private data class TokenBody(val token: String)
+
 /** What a device needs to show a title without looking it up. */
 @Serializable
 data class ApiCard(
@@ -113,6 +129,26 @@ class ChofoApi(
         call(HttpMethod.Post, "auth/sign-in/username") {
             jsonBody(mapOf("username" to username, "password" to password))
         }
+
+    /** Signs in with a Google ID token from the device's account picker (Android). */
+    suspend fun signInWithGoogleIdToken(idToken: String): AuthResponse =
+        call(HttpMethod.Post, "auth/sign-in/social") {
+            contentType(ContentType.Application.Json)
+            setBody(json.encodeToString(SocialIdTokenBody("google", IdToken(idToken))))
+        }
+
+    /** Trades the one-time token from the desktop browser sign-in for a session. */
+    suspend fun verifyOneTimeToken(token: String): AuthResponse {
+        val response = call<SessionResponse>(HttpMethod.Post, "auth/one-time-token/verify") {
+            contentType(ContentType.Application.Json)
+            setBody(json.encodeToString(TokenBody(token)))
+        }
+        return AuthResponse(response.session.token, response.user)
+    }
+
+    /** Where the desktop app opens the browser for Google sign-in (see chofo-api docs/BEHAVIOR.md). */
+    fun desktopGoogleStartUrl(port: Int, state: String): String =
+        "${baseUrl.trimEnd('/')}/v1/desktop-auth/start?port=$port&state=$state"
 
     /** Ends the session on the server. */
     suspend fun signOut(token: String) {

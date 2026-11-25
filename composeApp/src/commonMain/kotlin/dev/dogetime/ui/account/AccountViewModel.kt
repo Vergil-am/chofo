@@ -3,10 +3,13 @@ package dev.dogetime.ui.account
 import dev.dogetime.core.ViewModel
 import dev.dogetime.data.sync.Account
 import dev.dogetime.data.sync.AccountRepository
+import dev.dogetime.data.sync.GoogleSignIn
+import dev.dogetime.data.sync.GoogleSignInCancelled
 import dev.dogetime.data.sync.SyncStatus
 import dev.dogetime.data.sync.WatchSync
 import dev.dogetime.data.sync.toAccountMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +21,8 @@ enum class AuthMode { SignIn, SignUp }
 data class AuthFormState(
     val mode: AuthMode = AuthMode.SignIn,
     val isBusy: Boolean = false,
+    /** Waiting on Google (the account picker, or the browser on desktop). */
+    val isGoogleBusy: Boolean = false,
     val error: String? = null,
 )
 
@@ -52,6 +57,34 @@ class AccountViewModel(
             password.length < 8 -> fail("The password needs at least 8 characters.")
             else -> submit(onDone) { accounts.signUp(username, email, password) }
         }
+    }
+
+    private var googleJob: Job? = null
+
+    /** Signs in with Google through [googleSignIn]; a cancelled picker isn't shown as an error. */
+    fun signInWithGoogle(googleSignIn: GoogleSignIn, onDone: () -> Unit) {
+        if (_form.value.isBusy) return
+        _form.update { it.copy(isBusy = true, isGoogleBusy = true, error = null) }
+        googleJob = scope.launch {
+            try {
+                accounts.signInWithGoogle(googleSignIn.signIn())
+                _form.value = AuthFormState()
+                onDone()
+            } catch (e: CancellationException) {
+                _form.update { it.copy(isBusy = false, isGoogleBusy = false) }
+                throw e
+            } catch (_: GoogleSignInCancelled) {
+                _form.update { it.copy(isBusy = false, isGoogleBusy = false) }
+            } catch (e: Exception) {
+                _form.update { it.copy(isBusy = false, isGoogleBusy = false, error = e.toAccountMessage()) }
+            }
+        }
+    }
+
+    /** Stops waiting for Google (e.g. the browser tab was closed on desktop). */
+    fun cancelGoogle() {
+        googleJob?.cancel()
+        googleJob = null
     }
 
     /** The first-launch choice to use the app without an account. */

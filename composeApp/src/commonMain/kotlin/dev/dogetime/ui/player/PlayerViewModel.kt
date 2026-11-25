@@ -306,13 +306,17 @@ class PlayerViewModel(
         return resumePositionFor(saved.positionMs, durationMs)
     }
 
-    /** Saves the playback position. Does nothing for untracked playback or a zero position. */
-    fun saveProgress(positionMs: Long, durationMs: Long) {
+    /**
+     * Saves the playback position. Does nothing for untracked playback or a zero position.
+     * [urgent] (play, pause, end) also asks for a sync to the account soon; the periodic saves
+     * only update this device.
+     */
+    fun saveProgress(positionMs: Long, durationMs: Long, urgent: Boolean = false) {
         val (target, mediaItem) = trackedMedia() ?: return
         if (positionMs <= 0) return
         scope.launch {
             try {
-                watchHistory.saveProgress(target, mediaItem, positionMs, durationMs)
+                watchHistory.saveProgress(target, mediaItem, positionMs, durationMs, urgent)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

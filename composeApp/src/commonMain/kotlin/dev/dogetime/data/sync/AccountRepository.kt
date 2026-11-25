@@ -73,6 +73,16 @@ class AccountRepository(
         save(api.signUp(username.trim(), email.trim(), password))
     }
 
+    /** Signs in with what the platform's Google sign-in returned. */
+    suspend fun signInWithGoogle(credential: GoogleCredential) {
+        save(
+            when (credential) {
+                is GoogleCredential.IdToken -> api.signInWithGoogleIdToken(credential.token)
+                is GoogleCredential.OneTimeToken -> api.verifyOneTimeToken(credential.token)
+            },
+        )
+    }
+
     /**
      * Signs out on this device right away; the local watch history stays. The server session is
      * ended too, when reachable.
@@ -125,6 +135,7 @@ class AccountRepository(
 
 /** A short message for the user from a failed sign-in or sign-up. */
 fun Throwable.toAccountMessage(): String = when (this) {
+    is GoogleSignInException -> message ?: "Google sign-in didn't finish."
     is ChofoApiException -> when {
         code == "INVALID_USERNAME_OR_PASSWORD" || status == 401 -> "Wrong username or password."
         code == "USERNAME_IS_ALREADY_TAKEN" -> "That username is taken. Try another one."
@@ -134,6 +145,7 @@ fun Throwable.toAccountMessage(): String = when (this) {
         code == "INVALID_USERNAME" -> "Usernames can only use letters, numbers, dots and underscores."
         code == "INVALID_EMAIL" -> "That email address doesn't look right."
         status == 429 -> "Too many attempts. Wait a minute and try again."
+        code == "INVALID_TOKEN" || code == "ID_TOKEN_NOT_SUPPORTED" -> "Google sign-in was rejected. Try again."
         else -> message ?: "Something went wrong (${status})."
     }
     else -> "Couldn't reach the server. Check your connection."

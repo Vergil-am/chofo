@@ -1,4 +1,6 @@
 [versions]
+androidx-credentials = "1.5.0"
+googleid = "1.1.1"
 agp = "9.5.1"
 kotlin = "2.4.21"
 compose-multiplatform = "1.12.2"
@@ -21,6 +23,9 @@ libtorrent4j = "2.1.0-39"
 jsoup = "1.18.3"
 
 [libraries]
+androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "androidx-credentials" }
+androidx-credentials-play-services = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "androidx-credentials" }
+googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleid" }
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose-multiplatform" }
 compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose-multiplatform" }
 compose-animation = { module = "org.jetbrains.compose.animation:animation", version.ref = "compose-multiplatform" }

@@ -46,7 +46,9 @@ data class SyncStatus(
  * - **Deletes** made here are queued and sent, so another device's older copy can't bring them back.
  *
  * Runs at sign-in (everything, both ways), at app start, when Home reloads (at most once a
- * minute), [pushDelayMs] after watching progress changes, and soon after playback ends.
+ * minute), a few seconds after play, pause, the end of a video or closing the player, and when
+ * the app goes to the background with unsent changes. The player's periodic position saves stay
+ * on the device unless [periodicPushMs] is set (off for now, to keep requests low on free hosting).
  */
 class WatchSync(
     private val api: ChofoApi,
@@ -56,7 +58,8 @@ class WatchSync(
     private val media: MediaRepository?,
     private val appScope: CoroutineScope,
     private val now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
-    private val pushDelayMs: Long = 60_000,
+    /** Also push this long after a periodic position save. Null: only the events above push. */
+    private val periodicPushMs: Long? = null,
     private val urgentDelayMs: Long = 3_000,
     private val minPullIntervalMs: Long = 60_000,
 ) : WatchHistoryListener {
@@ -97,8 +100,23 @@ class WatchSync(
 
     override fun onSaved(urgent: Boolean) {
         if (accounts.account.value == null) return
-        schedule(if (urgent) urgentDelayMs else pushDelayMs)
+        if (urgent) schedule(urgentDelayMs) else periodicPushMs?.let { schedule(it) }
     }
+
+    /** The app went to the background: send what this device has that the server doesn't. */
+    fun onBackground() {
+        appScope.launch { flush() }
+    }
+
+    /** Syncs now if anything local is unsent. For the app closing; returns when done. */
+    suspend fun flush() {
+        if (accounts.account.value == null || !hasUnsentChanges()) return
+        scheduled?.cancel()
+        while (!sync()) delay(100)
+    }
+
+    private suspend fun hasUnsentChanges(): Boolean =
+        queueMutex.withLock { readDeletes().isNotEmpty() } || dao.changedSince(readLong(KEY_PUSHED_UP_TO)).isNotEmpty()
 
     override suspend fun onDeleted(type: MediaType, id: Int, season: Int?, episode: Int?, deletedAt: Long) {
         if (accounts.account.value == null) return
