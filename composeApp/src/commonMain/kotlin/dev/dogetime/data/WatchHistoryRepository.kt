@@ -12,6 +12,15 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 
+/** Told about local history changes, so they can be synced. Remote changes don't go through it. */
+interface WatchHistoryListener {
+    /** A row was saved locally. [urgent] when playback just ended, so it's worth sending soon. */
+    fun onSaved(urgent: Boolean)
+
+    /** Rows were deleted locally: one episode or movie, or a whole title when [season] is null. */
+    suspend fun onDeleted(type: MediaType, id: Int, season: Int?, episode: Int?, deletedAt: Long)
+}
+
 /**
  * Repository for managing watch history, progress, and resume timestamps.
  *
@@ -21,6 +30,8 @@ class WatchHistoryRepository(
     private val dao: WatchHistoryDao,
     private val appScope: CoroutineScope,
 ) {
+    /** Set once at startup by the sync engine. */
+    var listener: WatchHistoryListener? = null
 
     /** Observes the latest watch history entry per media item, newest first. */
     fun observeHistory(): Flow<List<WatchHistoryItem>> =
@@ -63,6 +74,7 @@ class WatchHistoryRepository(
         mediaItem: MediaItem,
         positionMs: Long,
         durationMs: Long,
+        urgent: Boolean = false,
     ) {
         val (season, episode) = when (target) {
             is WatchTarget.Movie -> Pair(null, null)
@@ -87,6 +99,7 @@ class WatchHistoryRepository(
             lastWatchedAt = Clock.System.now().toEpochMilliseconds(),
         )
         dao.upsert(entity)
+        listener?.onSaved(urgent)
     }
 
     /**
@@ -100,7 +113,7 @@ class WatchHistoryRepository(
         durationMs: Long,
     ) {
         appScope.launch {
-            runCatching { saveProgress(target, mediaItem, positionMs, durationMs) }
+            runCatching { saveProgress(target, mediaItem, positionMs, durationMs, urgent = true) }
         }
     }
 
@@ -108,17 +121,24 @@ class WatchHistoryRepository(
     suspend fun delete(type: MediaType, id: Int, season: Int? = null, episode: Int? = null) {
         val key = WatchHistoryEntity.key(type.name, id, season, episode)
         dao.deleteByKey(key)
+        listener?.onDeleted(type, id, season, episode, now())
     }
 
     /** Removes all watch history for a given media title. */
     suspend fun deleteByMedia(type: MediaType, id: Int) {
         dao.deleteByMedia(id, type.name)
+        listener?.onDeleted(type, id, null, null, now())
     }
 
     /** Clears all watch history. */
     suspend fun clearAll() {
+        val titles = dao.titles()
         dao.clearAll()
+        val at = now()
+        titles.forEach { listener?.onDeleted(MediaType.valueOf(it.type), it.id, null, null, at) }
     }
+
+    private fun now() = Clock.System.now().toEpochMilliseconds()
 }
 
 private fun WatchHistoryEntity.toDomain(): WatchHistoryItem = WatchHistoryItem(

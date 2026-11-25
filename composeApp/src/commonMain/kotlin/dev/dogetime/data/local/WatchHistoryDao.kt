@@ -46,6 +46,14 @@ interface WatchHistoryDao {
     @Upsert
     suspend fun upsert(entry: WatchHistoryEntity)
 
+    /** Rows changed after [since] (epoch ms), oldest first. Sync pushes these. */
+    @Query("SELECT * FROM watch_history WHERE lastWatchedAt > :since ORDER BY lastWatchedAt ASC")
+    suspend fun changedSince(since: Long): List<WatchHistoryEntity>
+
+    /** One row per title (type and id), for recording a clear-all as per-title deletes. */
+    @Query("SELECT * FROM watch_history GROUP BY type, id")
+    suspend fun titles(): List<WatchHistoryEntity>
+
     @Query("DELETE FROM watch_history WHERE watchKey = :watchKey")
     suspend fun deleteByKey(watchKey: String)
 

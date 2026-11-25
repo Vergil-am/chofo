@@ -17,6 +17,13 @@ plugins {
 val secretsFile = rootProject.file("secrets.properties")
 val secrets = Properties().apply {
     if (secretsFile.exists()) secretsFile.inputStream().use { load(it) }
+    // A key listed in the example but missing locally becomes "", so an optional setting
+    // (like CHOFO_API_URL) doesn't break the build; the code checks for a blank value.
+    val exampleFile = rootProject.file("secrets.properties.example")
+    if (exampleFile.exists()) {
+        val example = Properties().apply { exampleFile.inputStream().use { load(it) } }
+        example.stringPropertyNames().forEach { key -> putIfAbsent(key, "") }
+    }
 }
 val generatedSecretsDir = layout.buildDirectory.dir("generated/secrets/commonMain/kotlin")
 
@@ -139,6 +146,7 @@ kotlin {
         getByName("desktopTest").dependencies {
             implementation(kotlin("test"))
             implementation(libs.room.testing)
+            implementation(libs.ktor.client.mock)
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)

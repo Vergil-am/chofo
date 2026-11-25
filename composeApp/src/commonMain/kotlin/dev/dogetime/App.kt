@@ -68,6 +68,8 @@ import dev.dogetime.domain.DownloadStatus
 import dev.dogetime.domain.MediaItem
 import dev.dogetime.navigation.Destination
 import dev.dogetime.navigation.rememberNavigator
+import dev.dogetime.ui.account.AccountViewModel
+import dev.dogetime.ui.account.AuthScreen
 import dev.dogetime.ui.browse.BrowseScreen
 import dev.dogetime.ui.browse.BrowseViewModel
 import dev.dogetime.ui.components.LocalDownloadedEpisodes
@@ -239,7 +241,8 @@ fun App() {
         }
 
         // Tab ViewModels live here so switching tabs keeps their state.
-        val homeViewModel = remember { HomeViewModel(container.repository, container.favorites, container.watchHistory) }
+        val homeViewModel = remember { HomeViewModel(container.repository, container.favorites, container.watchHistory, container.watchSync::refresh) }
+        val accountViewModel = remember { AccountViewModel(container.accounts, container.watchSync) }
         val browseViewModel = remember { BrowseViewModel(container.repository) }
         val searchViewModel = remember { SearchViewModel(container.repository) }
         val downloadsViewModel = remember { DownloadsViewModel(container.downloadManager, container.watchHistory) }
@@ -251,10 +254,25 @@ fun App() {
                 searchViewModel.clear()
                 downloadsViewModel.clear()
                 settingsViewModel.clear()
+                accountViewModel.clear()
             }
         }
 
-        PlatformBackHandler(enabled = navigator.canGoBack) {
+        // First launch: offer to sign in, or to use the app locally. Null until the choice is read.
+        val onboardingDone by remember { container.accounts.onboardingDone }.collectAsState(initial = null)
+        // Sign-in opened from Settings.
+        var showSignIn by remember { mutableStateOf(false) }
+        when (onboardingDone) {
+            null -> return@ChofoTheme
+            false -> {
+                AuthScreen(viewModel = accountViewModel, isWelcome = true, onDone = {}, onDismiss = {})
+                return@ChofoTheme
+            }
+            true -> Unit
+        }
+
+        PlatformBackHandler(enabled = showSignIn) { showSignIn = false }
+        PlatformBackHandler(enabled = navigator.canGoBack && !showSignIn) {
             navigator.back()
         }
 
@@ -334,6 +352,11 @@ fun App() {
                                             currentTheme = currentTheme,
                                             onThemeSelect = selectTheme,
                                             viewModel = settingsViewModel,
+                                            accountViewModel = accountViewModel,
+                                            onSignIn = {
+                                                accountViewModel.setMode(dev.dogetime.ui.account.AuthMode.SignIn)
+                                                showSignIn = true
+                                            },
                                             modifier = destModifier,
                                             bottomInset = bottomInset,
                                         )
@@ -411,6 +434,15 @@ fun App() {
                                     .padding(bottom = innerPadding.calculateBottomPadding() + NavBarMargin),
                             )
                         }
+                    }
+
+                    if (showSignIn) {
+                        AuthScreen(
+                            viewModel = accountViewModel,
+                            isWelcome = false,
+                            onDone = { showSignIn = false },
+                            onDismiss = { showSignIn = false },
+                        )
                     }
                 }
             }

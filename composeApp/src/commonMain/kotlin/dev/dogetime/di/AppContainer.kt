@@ -18,6 +18,10 @@ import dev.dogetime.data.UpdateChecker
 import dev.dogetime.data.WatchHistoryRepository
 import dev.dogetime.data.YtsSubsApi
 import dev.dogetime.data.createHttpClient
+import dev.dogetime.data.sync.AccountRepository
+import dev.dogetime.data.sync.ChofoApi
+import dev.dogetime.data.sync.WatchSync
+import dev.dogetime.Secrets
 import dev.dogetime.data.local.createDatabase
 import dev.dogetime.ui.player.PlaybackSource
 import dev.dogetime.ui.player.PlayerViewModel
@@ -47,6 +51,17 @@ class AppContainer {
     val watchHistory: WatchHistoryRepository = WatchHistoryRepository(database.watchHistoryDao(), appScope)
     val updateChecker: UpdateChecker = UpdateChecker(httpClient)
     val preferences: PreferencesRepository = PreferencesRepository(database.preferenceDao(), appScope)
+
+    private val chofoApi = ChofoApi(Secrets.CHOFO_API_URL)
+    val accounts: AccountRepository = AccountRepository(chofoApi, database.preferenceDao(), appScope)
+    val watchSync: WatchSync = WatchSync(
+        api = chofoApi,
+        accounts = accounts,
+        dao = database.watchHistoryDao(),
+        prefs = database.preferenceDao(),
+        media = repository,
+        appScope = appScope,
+    ).also { watchHistory.listener = it }
 
     val downloadRepository: DownloadRepository = DownloadRepository(database.downloadDao())
     val subtitleDownloader: SubtitleDownloader = SubtitleDownloader(

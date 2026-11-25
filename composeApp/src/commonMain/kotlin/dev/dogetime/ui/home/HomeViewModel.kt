@@ -46,6 +46,8 @@ class HomeViewModel(
     private val repository: MediaRepository,
     favoritesRepository: FavoritesRepository,
     watchHistoryRepository: WatchHistoryRepository? = null,
+    /** Pulls watch progress from the other signed-in devices; it lands in the watch history. */
+    private val syncWatchHistory: () -> Unit = {},
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HomeContent())
@@ -65,6 +67,7 @@ class HomeViewModel(
     }
 
     fun load() {
+        syncWatchHistory()
         _state.value = HomeContent(
             isLoadingPopularMovies = true,
             isLoadingPopularTv = true,

@@ -319,6 +319,8 @@ fun SettingsScreen(
     currentTheme: AppTheme,
     onThemeSelect: (AppTheme) -> Unit,
     viewModel: SettingsViewModel,
+    accountViewModel: dev.dogetime.ui.account.AccountViewModel,
+    onSignIn: () -> Unit,
     modifier: Modifier = Modifier,
     bottomInset: Dp = 0.dp,
 ) {
@@ -348,6 +350,8 @@ fun SettingsScreen(
         )
 
         Spacer(Modifier.height(28.dp))
+
+        AccountSection(viewModel = accountViewModel, onSignIn = onSignIn)
 
         // Appearance / Themes Section
         Text(
