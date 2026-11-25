@@ -70,7 +70,6 @@ jobs:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           SUBDL_API_KEY: ${{ secrets.SUBDL_API_KEY }}
           OPEN_SUBTITLES_API_KEY: ${{ secrets.OPEN_SUBTITLES_API_KEY }}
-          SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
         run: |
           if [ -f secrets.properties.example ]; then
             cp secrets.properties.example secrets.properties
@@ -79,7 +78,6 @@ jobs:
           [ -n "$TMDB_API_KEY" ] && sed -i.bak "s|TMDB_API_KEY=.*|TMDB_API_KEY=$TMDB_API_KEY|" secrets.properties
           [ -n "$SUBDL_API_KEY" ] && sed -i.bak "s|SUBDL_API_KEY=.*|SUBDL_API_KEY=$SUBDL_API_KEY|" secrets.properties
           [ -n "$OPEN_SUBTITLES_API_KEY" ] && sed -i.bak "s|OPEN_SUBTITLES_API_KEY=.*|OPEN_SUBTITLES_API_KEY=$OPEN_SUBTITLES_API_KEY|" secrets.properties
-          [ -n "$SIMKL_CLIENT_ID" ] && sed -i.bak "s|SIMKL_CLIENT_ID=.*|SIMKL_CLIENT_ID=$SIMKL_CLIENT_ID|" secrets.properties
           rm -f secrets.properties.bak
 
       - name: Grant execute permission for gradlew

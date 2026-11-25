@@ -6,8 +6,6 @@ import dev.dogetime.core.ViewModel
 import dev.dogetime.core.extractAndSaveSubtitle
 import dev.dogetime.data.KitsuMappingRepository
 import dev.dogetime.data.OpenSubtitlesApi
-import dev.dogetime.data.ScrobbleSession
-import dev.dogetime.data.Scrobbler
 import dev.dogetime.data.StremioSubtitlesApi
 import dev.dogetime.data.SubdlApi
 import dev.dogetime.data.SubtitleDownloader
@@ -110,16 +108,12 @@ class PlayerViewModel(
     private val subdl: SubdlApi,
     private val openSubtitles: OpenSubtitlesApi,
     private val ytsSubs: YtsSubsApi,
-    private val scrobbler: Scrobbler? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
     private var nextSubtitleId = 0
-
-    /** Reports this playback to Simkl; null when it isn't tracked or Simkl isn't set up. */
-    private var scrobble: ScrobbleSession? = null
 
     private fun showSubtitle(path: String, language: String, announce: Boolean) {
         val file = SubtitleFile(path, language, announce, id = nextSubtitleId++)
@@ -175,9 +169,6 @@ class PlayerViewModel(
     private fun start(playback: Playback, searchSubtitles: Boolean) {
         _state.update { it.copy(playback = playback) }
         val target = playback.target
-        if (target != null && playback.mediaItem != null) {
-            scrobble = scrobbler?.newSession(target, playback.mediaItem)
-        }
         if (target == null || !searchSubtitles) return
         searchTarget = target
         _state.update { it.withSearchAbility(target) }
@@ -312,12 +303,11 @@ class PlayerViewModel(
         } catch (_: Exception) {
             null
         } ?: return null
-        return resumePositionFor(savedPositionFor(saved.positionMs, saved.durationMs, durationMs), durationMs)
+        return resumePositionFor(saved.positionMs, durationMs)
     }
 
     /** Saves the playback position. Does nothing for untracked playback or a zero position. */
     fun saveProgress(positionMs: Long, durationMs: Long) {
-        percent(positionMs, durationMs)?.let { scrobble?.onProgress(it) }
         val (target, mediaItem) = trackedMedia() ?: return
         if (positionMs <= 0) return
         scope.launch {
@@ -336,25 +326,10 @@ class PlayerViewModel(
      * this ViewModel are being torn down.
      */
     fun saveFinalProgress(positionMs: Long, durationMs: Long) {
-        scrobble?.onFinished(percent(positionMs, durationMs) ?: 0.0)
         val (target, mediaItem) = trackedMedia() ?: return
         if (positionMs <= 0) return
         watchHistory.saveProgressDetached(target, mediaItem, positionMs, durationMs)
     }
-
-    /** The player started or paused. Called once the duration is known. */
-    fun onPlayingChanged(isPlaying: Boolean, positionMs: Long, durationMs: Long) {
-        val percent = percent(positionMs, durationMs) ?: return
-        scrobble?.onPlayingChanged(isPlaying, percent)
-    }
-
-    /** The video reached its end. */
-    fun onPlaybackEnded() {
-        scrobble?.onFinished(100.0)
-    }
-
-    private fun percent(positionMs: Long, durationMs: Long): Double? =
-        if (durationMs > 0) positionMs * 100.0 / durationMs else null
 
     private fun trackedMedia(): Pair<WatchTarget, MediaItem>? {
         val playback = _state.value.playback ?: return null
@@ -377,17 +352,6 @@ internal fun mergeSubtitleGroups(groups: List<SubtitleGroup>): List<SubtitleGrou
         .map { (language, sameLanguage) -> SubtitleGroup(language, sameLanguage.flatMap { it.subtitles }) }
         .sortedBy { it.language }
 
-/**
- * The saved position, scaled to [durationMs] when it was saved against a clearly different length:
- * a session imported from Simkl (which only knows a percentage) or another copy of the video.
- */
-internal fun savedPositionFor(savedMs: Long, savedDurationMs: Long, durationMs: Long): Long {
-    if (savedDurationMs <= 0 || durationMs <= 0) return savedMs
-    val differs = kotlin.math.abs(savedDurationMs - durationMs) > durationMs * DURATION_TOLERANCE
-    return if (differs) (savedMs.toDouble() / savedDurationMs * durationMs).toLong() else savedMs
-}
-
-private const val DURATION_TOLERANCE = 0.1
 private const val RESUME_MIN_MS = 5_000L
 private const val RESUME_MAX_FRACTION = 0.95f
 

@@ -239,11 +239,11 @@ fun App() {
         }
 
         // Tab ViewModels live here so switching tabs keeps their state.
-        val homeViewModel = remember { HomeViewModel(container.repository, container.favorites, container.watchHistory, container.simklImport::refresh) }
+        val homeViewModel = remember { HomeViewModel(container.repository, container.favorites, container.watchHistory) }
         val browseViewModel = remember { BrowseViewModel(container.repository) }
         val searchViewModel = remember { SearchViewModel(container.repository) }
         val downloadsViewModel = remember { DownloadsViewModel(container.downloadManager, container.watchHistory) }
-        val settingsViewModel = remember { SettingsViewModel(container.updateChecker, container.simkl) }
+        val settingsViewModel = remember { SettingsViewModel(container.updateChecker) }
         DisposableEffect(Unit) {
             onDispose {
                 homeViewModel.clear()

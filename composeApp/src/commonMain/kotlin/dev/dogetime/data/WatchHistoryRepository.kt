@@ -57,14 +57,12 @@ class WatchHistoryRepository(
      * @param mediaItem The media card item (for displaying in Continue Watching).
      * @param positionMs Current position in milliseconds.
      * @param durationMs Total duration in milliseconds.
-     * @param watchedAt When it was watched, in epoch milliseconds. Now, unless imported.
      */
     suspend fun saveProgress(
         target: WatchTarget,
         mediaItem: MediaItem,
         positionMs: Long,
         durationMs: Long,
-        watchedAt: Long = Clock.System.now().toEpochMilliseconds(),
     ) {
         val (season, episode) = when (target) {
             is WatchTarget.Movie -> Pair(null, null)
@@ -86,7 +84,7 @@ class WatchHistoryRepository(
             episode = episode,
             positionMs = positionMs,
             durationMs = durationMs,
-            lastWatchedAt = watchedAt,
+            lastWatchedAt = Clock.System.now().toEpochMilliseconds(),
         )
         dao.upsert(entity)
     }
