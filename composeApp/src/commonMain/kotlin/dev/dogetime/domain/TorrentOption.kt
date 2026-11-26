@@ -1,6 +1,6 @@
 package dev.dogetime.domain
 
-/** One torrent that has the video for a [WatchTarget], as listed by a torrent source. */
+/** One stream with the video for a [WatchTarget], as listed by a stream add-on: a torrent or a direct link. */
 data class TorrentOption(
     /** Resolution label such as "1080p" or "4k HDR". */
     val quality: String,
@@ -15,7 +15,16 @@ data class TorrentOption(
     /** Which file in the torrent is the video, for torrents of a whole season or series. */
     val fileIndex: Int?,
     val fileName: String?,
-)
+    /** The stream add-on that listed it. */
+    val addonName: String? = null,
+    /** Set for a direct HTTP(S) stream; [magnet] is then empty. */
+    val directUrl: String? = null,
+    /** Headers [directUrl] needs (Stremio's `proxyHeaders.request`). */
+    val headers: Map<String, String> = emptyMap(),
+) {
+    /** A torrent, as opposed to a direct link: only these can be downloaded. */
+    val isTorrent: Boolean get() = directUrl == null
+}
 
 /** Extracts the infoHash hex string from a magnet URI. */
 fun extractInfoHash(magnet: String): String {

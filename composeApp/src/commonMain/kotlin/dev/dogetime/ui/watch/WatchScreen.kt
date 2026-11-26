@@ -47,7 +47,7 @@ import dev.dogetime.core.CapturedStream
 import dev.dogetime.core.ExternalPlayer
 import dev.dogetime.core.Torrents
 import dev.dogetime.core.WebEngineGate
-import dev.dogetime.data.TorrentProvider
+import dev.dogetime.data.addons.StreamAddon
 import dev.dogetime.domain.MediaItem
 import dev.dogetime.domain.VideoSource
 import dev.dogetime.domain.WatchTarget
@@ -98,6 +98,7 @@ fun WatchScreen(
             TorrentPicker(
                 title = title,
                 backdropUrl = backdropUrl,
+                addons = state.addons,
                 provider = state.provider,
                 torrents = state.torrents,
                 downloadChoice = state.downloadChoice,
@@ -122,11 +123,8 @@ fun WatchScreen(
             onBack = onBack,
             onPick = viewModel::pickSource,
             // Torrents look titles up by IMDb id or Kitsu id.
-            onPickTorrents = if (Torrents.isSupported && (target.imdbId != null || target.kitsuId != null)) {
-                viewModel::openTorrents
-            } else {
-                null
-            },
+            addons = state.addons,
+            onPickTorrents = if (Torrents.isSupported && state.addons.isNotEmpty()) viewModel::openTorrents else null,
             modifier = modifier,
         )
         // Keyed so a newly picked source starts with a fresh page and no captured stream.
@@ -154,7 +152,8 @@ private fun SourcePicker(
     backdropUrl: String?,
     onBack: () -> Unit,
     onPick: (VideoSource) -> Unit,
-    onPickTorrents: ((TorrentProvider) -> Unit)?,
+    addons: List<StreamAddon>,
+    onPickTorrents: ((StreamAddon) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -184,15 +183,15 @@ private fun SourcePicker(
                         Spacer(Modifier.height(8.dp))
                     }
                     Text(
-                        if (target.kitsuId != null) "Choose a torrent provider" else "Torrent providers",
+                        if (target.kitsuId != null) "Choose a stream add-on" else "Stream add-ons",
                         style = MaterialTheme.typography.titleMedium,
                     )
-                    TorrentProvider.entries.forEach { provider ->
+                    addons.forEach { provider ->
                         Button(
                             onClick = { onPickTorrents(provider) },
                             modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth(),
                         ) {
-                            Text(provider.displayName)
+                            Text(provider.name)
                         }
                     }
                 }

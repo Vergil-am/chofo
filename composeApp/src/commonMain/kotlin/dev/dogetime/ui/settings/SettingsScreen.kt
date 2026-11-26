@@ -321,6 +321,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     accountViewModel: dev.dogetime.ui.account.AccountViewModel,
     onSignIn: () -> Unit,
+    streamAddonsViewModel: StreamAddonsViewModel,
     modifier: Modifier = Modifier,
     bottomInset: Dp = 0.dp,
 ) {
@@ -352,6 +353,8 @@ fun SettingsScreen(
         Spacer(Modifier.height(28.dp))
 
         AccountSection(viewModel = accountViewModel, onSignIn = onSignIn)
+
+        StreamAddonsSection(viewModel = streamAddonsViewModel)
 
         // Appearance / Themes Section
         Text(

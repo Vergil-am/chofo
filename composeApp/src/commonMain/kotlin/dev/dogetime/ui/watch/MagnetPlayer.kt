@@ -1,5 +1,7 @@
 package dev.dogetime.ui.watch
 
+import dev.dogetime.core.CapturedStream
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,13 +39,18 @@ import kotlinx.coroutines.delay
 
 private const val MESSAGE_DURATION_MS = 4_000L
 
-/** A torrent to play: its magnet link, and which of its files to play (see [Torrents.open]). */
+/**
+ * A stream to play: a torrent's magnet link and which of its files to play (see [Torrents.open]),
+ * or a direct link from a stream add-on ([directUrl], with its [headers]).
+ */
 data class TorrentPick(
     val magnet: String,
     val fileName: String?,
     val fileIndex: Int?,
     val season: Int? = null,
     val episode: Int? = null,
+    val directUrl: String? = null,
+    val headers: Map<String, String> = emptyMap(),
 )
 
 /**
@@ -62,6 +69,21 @@ internal fun MagnetPlayer(
     mediaItem: MediaItem? = null,
     createPlayerViewModel: PlayerViewModelFactory,
 ) {
+    // A direct link needs no torrent: play it straight away.
+    val direct = pick.directUrl
+    if (direct != null) {
+        DirectStreamPlayer(
+            stream = CapturedStream(direct, pick.headers),
+            title = title,
+            target = target,
+            mediaItem = mediaItem,
+            onBack = onBack,
+            createPlayerViewModel = createPlayerViewModel,
+            modifier = modifier,
+        )
+        return
+    }
+
     var torrent by remember { mutableStateOf<TorrentStream?>(null) }
     var progress by remember { mutableStateOf(TorrentProgress()) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -141,5 +163,35 @@ internal fun MagnetPlayer(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DirectStreamPlayer(
+    stream: CapturedStream,
+    title: String,
+    target: WatchTarget?,
+    mediaItem: MediaItem?,
+    onBack: () -> Unit,
+    createPlayerViewModel: PlayerViewModelFactory,
+    modifier: Modifier,
+) {
+    var message by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(message) {
+        if (message != null) {
+            delay(MESSAGE_DURATION_MS)
+            message = null
+        }
+    }
+    Box(modifier.fillMaxSize()) {
+        VideoPlayerScreen(
+            source = PlaybackSource.Stream(stream, title, target, mediaItem),
+            createViewModel = createPlayerViewModel,
+            onBack = onBack,
+            onOpenExternal = ExternalPlayer.name?.let {
+                { message = ExternalPlayer.play(stream, title) ?: "Opening in $it…" }
+            },
+        )
+        message?.let { MessageChip(it, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp)) }
     }
 }

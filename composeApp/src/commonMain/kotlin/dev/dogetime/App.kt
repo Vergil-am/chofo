@@ -243,6 +243,7 @@ fun App() {
         // Tab ViewModels live here so switching tabs keeps their state.
         val homeViewModel = remember { HomeViewModel(container.repository, container.favorites, container.watchHistory, container.watchSync::refresh) }
         val accountViewModel = remember { AccountViewModel(container.accounts, container.watchSync) }
+        val streamAddonsViewModel = remember { dev.dogetime.ui.settings.StreamAddonsViewModel(container.streamAddons) }
         val browseViewModel = remember { BrowseViewModel(container.repository) }
         val searchViewModel = remember { SearchViewModel(container.repository) }
         val downloadsViewModel = remember { DownloadsViewModel(container.downloadManager, container.watchHistory) }
@@ -255,6 +256,7 @@ fun App() {
                 downloadsViewModel.clear()
                 settingsViewModel.clear()
                 accountViewModel.clear()
+                streamAddonsViewModel.clear()
             }
         }
 
@@ -360,6 +362,7 @@ fun App() {
                                             onThemeSelect = selectTheme,
                                             viewModel = settingsViewModel,
                                             accountViewModel = accountViewModel,
+                                            streamAddonsViewModel = streamAddonsViewModel,
                                             onSignIn = {
                                                 accountViewModel.setMode(dev.dogetime.ui.account.AuthMode.SignIn)
                                                 showSignIn = true

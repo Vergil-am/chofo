@@ -14,6 +14,7 @@ import dev.dogetime.data.SubdlApi
 import dev.dogetime.data.SubtitleDownloader
 import dev.dogetime.data.TmdbApi
 import dev.dogetime.data.TorrentioApi
+import dev.dogetime.data.addons.StreamAddonRepository
 import dev.dogetime.data.UpdateChecker
 import dev.dogetime.data.WatchHistoryRepository
 import dev.dogetime.data.YtsSubsApi
@@ -43,6 +44,7 @@ class AppContainer {
     val kitsuApi: KitsuApi = KitsuApi(httpClient)
     val repository: MediaRepository = MediaRepository(TmdbApi(httpClient), kitsuApi)
     val torrentio: TorrentioApi = TorrentioApi(httpClient)
+    val streamAddons: StreamAddonRepository = StreamAddonRepository(database.preferenceDao(), httpClient)
     val subdl: SubdlApi = SubdlApi(httpClient, kitsuMapping)
     val openSubtitles: OpenSubtitlesApi = OpenSubtitlesApi(httpClient, kitsuMapping)
     val ytsSubs: YtsSubsApi = YtsSubsApi(httpClient, kitsuMapping)
@@ -95,6 +97,7 @@ class AppContainer {
         mediaItem = destination.mediaItem,
         backdropUrl = destination.backdropUrl,
         torrentio = torrentio,
+        addonRepository = streamAddons,
         downloadManager = downloadManager,
         stremioSubtitles = stremioSubtitles,
         openSubtitles = openSubtitles,

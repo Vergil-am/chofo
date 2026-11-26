@@ -37,7 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.dogetime.core.UiState
-import dev.dogetime.data.TorrentProvider
+import dev.dogetime.data.addons.StreamAddon
 import dev.dogetime.domain.Subtitle
 import dev.dogetime.domain.TorrentOption
 import dev.dogetime.ui.components.dragToScroll
@@ -71,10 +71,11 @@ private val TorrentOption.group: QualityGroup
 internal fun TorrentPicker(
     title: String,
     backdropUrl: String?,
-    provider: TorrentProvider,
+    addons: List<StreamAddon>,
+    provider: StreamAddon?,
     torrents: UiState<List<TorrentOption>>,
     downloadChoice: DownloadChoice?,
-    onSelectProvider: (TorrentProvider) -> Unit,
+    onSelectProvider: (StreamAddon) -> Unit,
     onRetry: () -> Unit,
     onBack: () -> Unit,
     onChangeSource: () -> Unit,
@@ -85,25 +86,26 @@ internal fun TorrentPicker(
     modifier: Modifier = Modifier,
 ) {
     var group by remember(provider) { mutableStateOf(QualityGroup.FullHd) }
+    val providerName = provider?.name ?: "this add-on"
 
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (backdropUrl != null) BlurredBackdrop(backdropUrl, Modifier.fillMaxSize())
         WatchPage(title = title, pageShown = false, onBack = onBack, onChangeSource = onChangeSource) {
             Column(Modifier.fillMaxSize()) {
-                ProviderChips(selected = provider, onSelect = onSelectProvider)
+                ProviderChips(addons = addons, selected = provider, onSelect = onSelectProvider)
                 when (val state = torrents) {
                     UiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
                     is UiState.Error -> Message(state.message, onRetry = onRetry)
                     is UiState.Success -> if (state.data.isEmpty()) {
-                        Message("No torrents found on ${provider.displayName} for this title.", onRetry = onRetry)
+                        Message("No streams found on $providerName for this title.", onRetry = onRetry)
                     } else {
                         val shown = remember(state.data, group) { state.data.filter { it.group == group } }
                         QualityChips(selected = group, onSelect = { group = it })
                         if (shown.isEmpty()) {
                             Text(
-                                text = "No ${group.label} torrents on ${provider.displayName} for this title.",
+                                text = "No ${group.label} streams on $providerName for this title.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
@@ -120,7 +122,8 @@ internal fun TorrentPicker(
                                 TorrentRow(
                                     option = option,
                                     onClick = { onPick(option) },
-                                    onDownloadClick = onChooseDownload?.let { choose -> { choose(option) } },
+                                    // Direct links play, but only torrents can be downloaded.
+                                    onDownloadClick = onChooseDownload?.takeIf { option.isTorrent }?.let { choose -> { choose(option) } },
                                 )
                             }
                         }
@@ -141,7 +144,7 @@ internal fun TorrentPicker(
 }
 
 @Composable
-private fun ProviderChips(selected: TorrentProvider, onSelect: (TorrentProvider) -> Unit) {
+private fun ProviderChips(addons: List<StreamAddon>, selected: StreamAddon?, onSelect: (StreamAddon) -> Unit) {
     val rowState = rememberLazyListState()
     LazyRow(
         state = rowState,
@@ -149,11 +152,11 @@ private fun ProviderChips(selected: TorrentProvider, onSelect: (TorrentProvider)
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {
-        items(TorrentProvider.entries) { provider ->
+        items(addons, key = { it.id }) { provider ->
             FilterChip(
-                selected = provider == selected,
+                selected = provider.id == selected?.id,
                 onClick = { onSelect(provider) },
-                label = { Text(provider.displayName) },
+                label = { Text(provider.name) },
             )
         }
     }
@@ -211,8 +214,9 @@ private fun TorrentRow(
                 )
                 Text(
                     text = listOfNotNull(
+                        if (option.isTorrent) null else "Direct link",
                         option.seeders?.let { if (it == 1) "1 seeder" else "$it seeders" },
-                        option.size,
+                        option.size?.takeIf { it.isNotBlank() },
                         option.site,
                     ).joinToString(" · "),
                     style = MaterialTheme.typography.labelMedium,

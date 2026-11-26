@@ -7,7 +7,8 @@ import dev.dogetime.core.runForUiState
 import dev.dogetime.data.OpenSubtitlesApi
 import dev.dogetime.data.StremioSubtitlesApi
 import dev.dogetime.data.SubdlApi
-import dev.dogetime.data.TorrentProvider
+import dev.dogetime.data.addons.StreamAddon
+import dev.dogetime.data.addons.StreamAddonRepository
 import dev.dogetime.data.TorrentioApi
 import dev.dogetime.domain.DownloadItem
 import dev.dogetime.domain.MediaItem
@@ -52,8 +53,11 @@ data class DownloadChoice(
 
 data class WatchUiState(
     val step: WatchStep = WatchStep.SourceMenu,
-    val provider: TorrentProvider = TorrentProvider.Torrentio,
-    /** The torrent list for [provider]. */
+    /** The stream add-ons that can serve this title, in the user's order. */
+    val addons: List<StreamAddon> = emptyList(),
+    /** The add-on whose streams are shown. */
+    val provider: StreamAddon? = null,
+    /** The stream list for [provider]. */
     val torrents: UiState<List<TorrentOption>> = UiState.Loading,
     val downloadChoice: DownloadChoice? = null,
     /** A short message, e.g. that a download was queued. Clears itself after a few seconds. */
@@ -70,6 +74,7 @@ class WatchViewModel(
     private val mediaItem: MediaItem?,
     private val backdropUrl: String?,
     private val torrentio: TorrentioApi,
+    private val addonRepository: StreamAddonRepository,
     private val downloadManager: TorrentDownloadManager,
     private val stremioSubtitles: StremioSubtitlesApi,
     private val openSubtitles: OpenSubtitlesApi,
@@ -90,18 +95,29 @@ class WatchViewModel(
         _state.update { it.copy(step = WatchStep.Source(source)) }
     }
 
-    fun openTorrents(provider: TorrentProvider) {
+    init {
+        scope.launch {
+            addonRepository.addons.collect { all ->
+                val usable = all.filter { it.canServe(target) }
+                _state.update { state ->
+                    state.copy(addons = usable, provider = state.provider?.let { p -> usable.firstOrNull { it.id == p.id } })
+                }
+            }
+        }
+    }
+
+    fun openTorrents(provider: StreamAddon) {
         _state.update { it.copy(step = WatchStep.Torrents) }
         selectProvider(provider)
     }
 
-    fun selectProvider(provider: TorrentProvider) {
+    fun selectProvider(provider: StreamAddon) {
         _state.update { it.copy(provider = provider) }
         loadTorrents()
     }
 
     fun loadTorrents() {
-        val provider = _state.value.provider
+        val provider = _state.value.provider ?: return
         torrentsJob?.cancel()
         _state.update { it.copy(torrents = UiState.Loading) }
         torrentsJob = scope.launch {
@@ -112,7 +128,10 @@ class WatchViewModel(
 
     fun playTorrent(option: TorrentOption) {
         val episode = target as? WatchTarget.Episode
-        val pick = TorrentPick(option.magnet, option.fileName, option.fileIndex, episode?.season, episode?.episode)
+        val pick = TorrentPick(
+            option.magnet, option.fileName, option.fileIndex, episode?.season, episode?.episode,
+            directUrl = option.directUrl, headers = option.headers,
+        )
         _state.update { it.copy(step = WatchStep.Torrent(pick)) }
     }
 
