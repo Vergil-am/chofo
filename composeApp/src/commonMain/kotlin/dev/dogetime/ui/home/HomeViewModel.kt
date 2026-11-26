@@ -1,5 +1,11 @@
 package dev.dogetime.ui.home
 
+import dev.dogetime.data.NextEpisode
+import dev.dogetime.data.NextEpisodeFinder
+import kotlinx.coroutines.flow.transformLatest
+import dev.dogetime.data.WatchlistRepository
+import dev.dogetime.domain.WatchStatus
+import kotlinx.coroutines.flow.map
 import dev.dogetime.core.ViewModel
 import dev.dogetime.data.FavoritesRepository
 import dev.dogetime.data.MediaRepository
@@ -42,12 +48,17 @@ data class HomeContent(
             trendingTv.isNotEmpty() || trendingAnime.isNotEmpty() || popularAnime.isNotEmpty()
 }
 
+private val ACTIVE_STATUSES = setOf(WatchStatus.Watching, WatchStatus.PlanToWatch, WatchStatus.OnHold)
+
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class HomeViewModel(
     private val repository: MediaRepository,
     favoritesRepository: FavoritesRepository,
     watchHistoryRepository: WatchHistoryRepository? = null,
     /** Pulls watch progress from the other signed-in devices; it lands in the watch history. */
     private val syncWatchHistory: () -> Unit = {},
+    watchlist: WatchlistRepository? = null,
+    private val nextEpisodes: NextEpisodeFinder? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HomeContent())
@@ -57,9 +68,49 @@ class HomeViewModel(
     val favorites: StateFlow<List<MediaItem>> = favoritesRepository.observeFavorites()
         .stateIn(scope, SharingStarted.Eagerly, initialValue = emptyList())
 
-    /** Recent watch history, newest first. Updates automatically as playback progresses. */
+    /**
+     * Continue Watching, newest first: the latest movie or episode of each title that isn't
+     * finished yet. A finished episode is replaced by the next one (at its own progress, or 0%),
+     * and a title with nothing left to watch is left out. Shown at once from what's already
+     * known, then again once the next episodes have been looked up.
+     */
     val watchHistory: StateFlow<List<WatchHistoryItem>> = (watchHistoryRepository?.observeHistory()
         ?: kotlinx.coroutines.flow.flowOf(emptyList()))
+        .transformLatest { latest ->
+            emit(continueWatching(latest, watchHistoryRepository, lookUp = false))
+            if (latest.any { it.isFinished && it.season != null }) {
+                emit(continueWatching(latest, watchHistoryRepository, lookUp = true))
+            }
+        }
+        .stateIn(scope, SharingStarted.Eagerly, initialValue = emptyList())
+
+    private suspend fun continueWatching(
+        latest: List<WatchHistoryItem>,
+        history: WatchHistoryRepository?,
+        lookUp: Boolean,
+    ): List<WatchHistoryItem> = latest.mapNotNull { item ->
+        if (!item.isFinished) return@mapNotNull item
+        val season = item.season ?: return@mapNotNull null // a finished movie
+        val episode = item.episode ?: return@mapNotNull null
+        val finder = nextEpisodes ?: return@mapNotNull null
+        val type = item.mediaItem.type
+        val next = try {
+            if (lookUp) finder.after(type, item.mediaItem.id, season, episode) else finder.cached(type, item.mediaItem.id, season, episode)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null // offline: left out until it can be looked up
+        }
+        val number = (next as? NextEpisode.Available)?.episode ?: return@mapNotNull null
+        val saved = history?.getHistory(type, item.mediaItem.id, number.season, number.episode)
+        // Watched before (e.g. a rewatch from an earlier episode): carry on where that stopped.
+        saved?.takeIf { !it.isFinished }?.copy(lastWatchedAt = item.lastWatchedAt)
+            ?: item.copy(season = number.season, episode = number.episode, positionMs = 0, durationMs = 0)
+    }
+
+    /** What's being watched or planned (not completed or dropped), most recently changed first. */
+    val watchlist: StateFlow<List<MediaItem>> = (watchlist?.observeAll() ?: kotlinx.coroutines.flow.flowOf(emptyList()))
+        .map { entries -> entries.filter { it.status in ACTIVE_STATUSES }.map { it.item } }
         .stateIn(scope, SharingStarted.Eagerly, initialValue = emptyList())
 
     init {

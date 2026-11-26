@@ -17,6 +17,9 @@ import dev.dogetime.data.TorrentioApi
 import dev.dogetime.data.addons.StreamAddonRepository
 import dev.dogetime.data.UpdateChecker
 import dev.dogetime.data.WatchHistoryRepository
+import dev.dogetime.data.WatchlistRepository
+import dev.dogetime.data.NextEpisodeFinder
+import dev.dogetime.data.CompletionTracker
 import dev.dogetime.data.YtsSubsApi
 import dev.dogetime.data.createHttpClient
 import dev.dogetime.data.sync.AccountRepository
@@ -51,6 +54,9 @@ class AppContainer {
     val stremioSubtitles: StremioSubtitlesApi = StremioSubtitlesApi(httpClient, kitsuMapping)
     val favorites: FavoritesRepository = FavoritesRepository(database.favoriteDao())
     val watchHistory: WatchHistoryRepository = WatchHistoryRepository(database.watchHistoryDao(), appScope)
+    val watchlist: WatchlistRepository = WatchlistRepository(database.watchlistDao())
+    val nextEpisodes: NextEpisodeFinder = NextEpisodeFinder(repository)
+    val completion: CompletionTracker = CompletionTracker(watchlist, nextEpisodes, appScope)
     val updateChecker: UpdateChecker = UpdateChecker(httpClient)
     val preferences: PreferencesRepository = PreferencesRepository(database.preferenceDao(), appScope)
 
@@ -63,7 +69,11 @@ class AppContainer {
         prefs = database.preferenceDao(),
         media = repository,
         appScope = appScope,
-    ).also { watchHistory.listener = it }
+        watchlist = database.watchlistDao(),
+    ).also {
+        watchHistory.listener = it
+        watchlist.listener = it
+    }
 
     val downloadRepository: DownloadRepository = DownloadRepository(database.downloadDao())
     val subtitleDownloader: SubtitleDownloader = SubtitleDownloader(
@@ -79,7 +89,7 @@ class AppContainer {
 
     val offlineCopies: OfflineCopyFinder = OfflineCopyFinder(downloadRepository, downloadManager)
 
-    fun playerViewModel(source: PlaybackSource): PlayerViewModel = PlayerViewModel(
+    fun playerViewModel(source: PlaybackSource, startFromBeginning: Boolean = false): PlayerViewModel = PlayerViewModel(
         source = source,
         watchHistory = watchHistory,
         downloadManager = downloadManager,
@@ -89,6 +99,9 @@ class AppContainer {
         subdl = subdl,
         openSubtitles = openSubtitles,
         ytsSubs = ytsSubs,
+        watchlist = watchlist,
+        startFromBeginning = startFromBeginning,
+        completion = completion,
     )
 
     fun watchViewModel(destination: Destination.Watch): WatchViewModel = WatchViewModel(
@@ -102,5 +115,7 @@ class AppContainer {
         stremioSubtitles = stremioSubtitles,
         openSubtitles = openSubtitles,
         subdl = subdl,
+        watchHistory = watchHistory,
+        resumeLastStream = destination.resumeLastStream,
     )
 }

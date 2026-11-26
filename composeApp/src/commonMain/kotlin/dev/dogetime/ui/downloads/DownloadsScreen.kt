@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import dev.dogetime.domain.FINISHED_FRACTION
 import dev.dogetime.domain.DownloadItem
 import dev.dogetime.domain.DownloadStatus
 import dev.dogetime.domain.WatchHistoryItem
@@ -329,8 +330,8 @@ private fun DownloadCard(
 
                 DownloadStatus.COMPLETED -> {
                     val progress = watchProgress?.progress ?: 0f
-                    val isFinished = progress >= 0.95f
-                    val isPartiallyWatched = progress in 0.01f..0.94f
+                    val isFinished = progress >= FINISHED_FRACTION
+                    val isPartiallyWatched = progress >= 0.01f && !isFinished
 
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (isPartiallyWatched) {

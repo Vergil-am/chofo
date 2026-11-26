@@ -4,6 +4,7 @@ import dev.dogetime.data.local.WatchHistoryDao
 import dev.dogetime.data.local.WatchHistoryEntity
 import dev.dogetime.domain.MediaItem
 import dev.dogetime.domain.MediaType
+import dev.dogetime.domain.RememberedStream
 import dev.dogetime.domain.WatchHistoryItem
 import dev.dogetime.domain.WatchTarget
 import kotlinx.coroutines.CoroutineScope
@@ -57,6 +58,14 @@ class WatchHistoryRepository(
         return dao.getByKey(key)?.toDomain()
     }
 
+    /** The stream last played for a movie or episode, on any device, if it can be opened again. */
+    suspend fun rememberedStream(type: MediaType, id: Int, season: Int? = null, episode: Int? = null): RememberedStream? =
+        RememberedStream.decode(dao.getByKey(WatchHistoryEntity.key(type.name, id, season, episode))?.stream)
+
+    /** The stream the title was last played with, from any of its episodes. */
+    suspend fun latestRememberedStream(type: MediaType, id: Int): RememberedStream? =
+        RememberedStream.decode(dao.getLatestWithStream(id, type.name)?.stream)
+
     /** Fetches the latest watched episode or movie for a title. */
     suspend fun getLatestHistory(type: MediaType, id: Int): WatchHistoryItem? =
         dao.getLatestByMedia(id, type.name)?.toDomain()
@@ -68,6 +77,8 @@ class WatchHistoryRepository(
      * @param mediaItem The media card item (for displaying in Continue Watching).
      * @param positionMs Current position in milliseconds.
      * @param durationMs Total duration in milliseconds.
+     * @param stream What is playing, so it can be opened again. Null keeps the one saved before
+     *   (a downloaded copy has nothing to remember).
      */
     suspend fun saveProgress(
         target: WatchTarget,
@@ -75,6 +86,7 @@ class WatchHistoryRepository(
         positionMs: Long,
         durationMs: Long,
         urgent: Boolean = false,
+        stream: RememberedStream? = null,
     ) {
         val (season, episode) = when (target) {
             is WatchTarget.Movie -> Pair(null, null)
@@ -97,6 +109,7 @@ class WatchHistoryRepository(
             positionMs = positionMs,
             durationMs = durationMs,
             lastWatchedAt = Clock.System.now().toEpochMilliseconds(),
+            stream = stream?.encode() ?: dao.getByKey(key)?.stream,
         )
         dao.upsert(entity)
         listener?.onSaved(urgent)
@@ -111,9 +124,10 @@ class WatchHistoryRepository(
         mediaItem: MediaItem,
         positionMs: Long,
         durationMs: Long,
+        stream: RememberedStream? = null,
     ) {
         appScope.launch {
-            runCatching { saveProgress(target, mediaItem, positionMs, durationMs, urgent = true) }
+            runCatching { saveProgress(target, mediaItem, positionMs, durationMs, urgent = true, stream = stream) }
         }
     }
 

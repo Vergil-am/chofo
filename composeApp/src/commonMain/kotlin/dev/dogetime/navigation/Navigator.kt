@@ -25,6 +25,8 @@ sealed interface Destination {
     @Serializable
     data object Settings : Destination
     @Serializable
+    data object Watchlist : Destination
+    @Serializable
     data class Details(
         val type: MediaType,
         val id: Int,
@@ -36,10 +38,15 @@ sealed interface Destination {
         val title: String,
         val backdropUrl: String? = null,
         val mediaItem: MediaItem? = null,
+        /** Start the stream last played for [target] straight away, if there is one. */
+        val resumeLastStream: Boolean = false,
+        /** Play from 0:00 instead of the saved position. */
+        val fromBeginning: Boolean = false,
     ) : Destination
     @Serializable
     data class OfflineWatch(
         val item: DownloadItem,
+        val fromBeginning: Boolean = false,
     ) : Destination
 }
 

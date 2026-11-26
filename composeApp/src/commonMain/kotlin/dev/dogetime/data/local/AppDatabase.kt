@@ -9,8 +9,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 
 @Database(
-    entities = [FavoriteEntity::class, WatchHistoryEntity::class, DownloadEntity::class, PreferenceEntity::class],
-    version = 5,
+    entities = [FavoriteEntity::class, WatchHistoryEntity::class, DownloadEntity::class, PreferenceEntity::class, WatchlistEntity::class],
+    version = 6,
 )
 @ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -18,6 +18,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun watchHistoryDao(): WatchHistoryDao
     abstract fun downloadDao(): DownloadDao
     abstract fun preferenceDao(): PreferenceDao
+    abstract fun watchlistDao(): WatchlistDao
 }
 
 // Room's compiler generates the actual implementation for each platform.

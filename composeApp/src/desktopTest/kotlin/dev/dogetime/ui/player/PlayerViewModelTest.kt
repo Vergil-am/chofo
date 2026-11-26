@@ -23,6 +23,9 @@ class PlayerViewModelTest {
     @Test
     fun startsOverWhenNearlyFinished() {
         assertNull(resumePositionFor(savedMs = (hourMs * 0.97).toLong(), durationMs = hourMs))
+        // From 90% it counts as watched, so it plays from the start.
+        assertNull(resumePositionFor(savedMs = (hourMs * 0.9).toLong(), durationMs = hourMs))
+        assertEquals((hourMs * 0.89).toLong(), resumePositionFor(savedMs = (hourMs * 0.89).toLong(), durationMs = hourMs))
     }
 
     @Test

@@ -2,6 +2,11 @@ package dev.dogetime.data.sync
 
 import dev.dogetime.data.MediaRepository
 import dev.dogetime.data.WatchHistoryListener
+import dev.dogetime.data.WatchlistListener
+import dev.dogetime.data.local.WatchlistDao
+import dev.dogetime.data.local.WatchlistEntity
+import dev.dogetime.domain.RememberedStream
+import dev.dogetime.domain.WatchStatus
 import dev.dogetime.data.local.PreferenceDao
 import dev.dogetime.data.local.PreferenceEntity
 import dev.dogetime.data.local.WatchHistoryDao
@@ -45,6 +50,9 @@ data class SyncStatus(
  *   local rows (or delete them, for tombstones).
  * - **Deletes** made here are queued and sent, so another device's older copy can't bring them back.
  *
+ * The watchlist syncs alongside: each change made here is sent (one request per title, as list
+ * changes are rare) and changes from other devices come down with the same newest-wins rule.
+ *
  * Runs at sign-in (everything, both ways), at app start, when Home reloads (at most once a
  * minute), a few seconds after play, pause, the end of a video or closing the player, and when
  * the app goes to the background with unsent changes. The player's periodic position saves stay
@@ -62,7 +70,9 @@ class WatchSync(
     private val periodicPushMs: Long? = null,
     private val urgentDelayMs: Long = 3_000,
     private val minPullIntervalMs: Long = 60_000,
-) : WatchHistoryListener {
+    /** The watchlist, synced the same way. Null leaves lists alone. */
+    private val watchlist: WatchlistDao? = null,
+) : WatchHistoryListener, WatchlistListener {
 
     private val _status = MutableStateFlow(SyncStatus())
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
@@ -116,7 +126,14 @@ class WatchSync(
     }
 
     private suspend fun hasUnsentChanges(): Boolean =
-        queueMutex.withLock { readDeletes().isNotEmpty() } || dao.changedSince(readLong(KEY_PUSHED_UP_TO)).isNotEmpty()
+        queueMutex.withLock { readDeletes().isNotEmpty() } ||
+            dao.changedSince(readLong(KEY_PUSHED_UP_TO)).isNotEmpty() ||
+            watchlist?.hasPending() == true
+
+    override fun onWatchlistChanged() {
+        if (accounts.account.value == null) return
+        schedule(urgentDelayMs)
+    }
 
     override suspend fun onDeleted(type: MediaType, id: Int, season: Int?, episode: Int?, deletedAt: Long) {
         if (accounts.account.value == null) return
@@ -152,6 +169,10 @@ class WatchSync(
             pushDeletes(account.token)
             pushChanges(account.token)
             pull(account.token)
+            watchlist?.let {
+                pushWatchlist(account.token, it)
+                pullWatchlist(account.token, it)
+            }
             lastPullAt = now()
             _status.value = SyncStatus(lastSyncedAt = now())
         } catch (e: CancellationException) {
@@ -198,6 +219,96 @@ class WatchSync(
             }
             writeLong(KEY_PUSHED_UP_TO, chunk.maxOf { it.lastWatchedAt })
         }
+    }
+
+    private suspend fun pushWatchlist(token: String, lists: WatchlistDao) {
+        for (row in lists.pending()) {
+            val type = runCatching { MediaType.valueOf(row.type) }.getOrNull()
+            val status = WatchStatus.entries.firstOrNull { it.name == row.status }
+            if (type == null || status == null || row.id < 1) {
+                // Nothing the server would take; don't retry it forever.
+                lists.markSent(row.id, row.type, row.updatedAt)
+                continue
+            }
+            try {
+                if (row.deleted) {
+                    api.deleteList(token, type.apiName, row.id, row.updatedAt)
+                    lists.purgeTombstone(row.id, row.type, row.updatedAt)
+                } else {
+                    val stored = api.putList(token, type.apiName, row.id, status.apiName, row.updatedAt, row.card())
+                    lists.markSent(row.id, row.type, row.updatedAt)
+                    // The server already had something newer: adopt it.
+                    if (stored.updatedAt > row.updatedAt || stored.deleted) applyRemoteList(lists, stored)
+                }
+            } catch (e: ChofoApiException) {
+                if (e.status != 400) throw e
+                lists.markSent(row.id, row.type, row.updatedAt)
+            }
+        }
+    }
+
+    private suspend fun pullWatchlist(token: String, lists: WatchlistDao) {
+        var cursor = readLong(KEY_LISTS_CURSOR)
+        var restarted = false
+        while (true) {
+            val page = try {
+                api.lists(token, cursor)
+            } catch (e: ChofoApiException) {
+                if (e.status == 410 && !restarted) {
+                    restarted = true
+                    cursor = 0
+                    continue
+                }
+                throw e
+            }
+            page.items.forEach { applyRemoteList(lists, it) }
+            cursor = page.nextCursor
+            writeLong(KEY_LISTS_CURSOR, cursor)
+            if (!page.hasMore) break
+        }
+    }
+
+    /** Applies one server entry when it's newer than the local one; it isn't sent back. */
+    private suspend fun applyRemoteList(lists: WatchlistDao, entry: ApiListEntry) {
+        val type = mediaTypeOf(entry.type) ?: return
+        val local = lists.get(entry.id, type.name)
+        if (local != null && local.updatedAt >= entry.updatedAt) return
+        if (entry.deleted) {
+            if (local != null) lists.delete(entry.id, type.name)
+            return
+        }
+        val status = WatchStatus.fromApi(entry.status) ?: return
+        val known = local?.takeIf { it.title.isNotBlank() }
+        val card = when {
+            entry.card?.title != null || known == null -> {
+                val looked = if (entry.card?.title == null) lookUp(type, entry.id) else null
+                LocalCard(
+                    title = entry.card?.title ?: looked?.title ?: "",
+                    overview = entry.card?.overview ?: looked?.overview ?: "",
+                    posterUrl = entry.card?.posterUrl ?: looked?.posterUrl,
+                    backdropUrl = entry.card?.backdropUrl ?: looked?.backdropUrl,
+                    rating = entry.card?.rating ?: looked?.rating ?: 0.0,
+                    year = entry.card?.year ?: looked?.year,
+                )
+            }
+            else -> LocalCard(known.title, known.overview, known.posterUrl, known.backdropUrl, known.rating, known.year)
+        }
+        lists.upsert(
+            WatchlistEntity(
+                id = entry.id,
+                type = type.name,
+                status = status.name,
+                title = card.title,
+                overview = card.overview,
+                posterUrl = card.posterUrl,
+                backdropUrl = card.backdropUrl,
+                rating = card.rating,
+                year = card.year,
+                updatedAt = entry.updatedAt,
+                deleted = false,
+                pending = false,
+            ),
+        )
     }
 
     // ---------------------------------------------------------------- Pull
@@ -251,6 +362,8 @@ class WatchSync(
                 positionMs = row.positionMs,
                 durationMs = row.durationMs,
                 lastWatchedAt = row.watchedAt,
+                // The server keeps the last stream it was sent, so a row without one keeps ours.
+                stream = row.stream?.encode() ?: local?.stream,
             ),
         )
     }
@@ -295,12 +408,13 @@ class WatchSync(
     private suspend fun prepareFor(userId: String) {
         if (read(KEY_SYNC_USER) == userId) return
         clearSyncState()
+        watchlist?.markAllPending()
         prefs.upsert(PreferenceEntity(KEY_SYNC_USER, userId))
     }
 
     private suspend fun clearSyncState() {
         scheduled?.cancel()
-        listOf(KEY_SYNC_USER, KEY_CURSOR, KEY_PUSHED_UP_TO, KEY_PENDING_DELETES).forEach { prefs.delete(it) }
+        listOf(KEY_SYNC_USER, KEY_CURSOR, KEY_PUSHED_UP_TO, KEY_PENDING_DELETES, KEY_LISTS_CURSOR).forEach { prefs.delete(it) }
         _status.value = SyncStatus()
         lastPullAt = 0
     }
@@ -326,6 +440,7 @@ class WatchSync(
         const val KEY_CURSOR = "sync_cursor"
         const val KEY_PUSHED_UP_TO = "sync_pushed_up_to"
         const val KEY_PENDING_DELETES = "sync_pending_deletes"
+        const val KEY_LISTS_CURSOR = "sync_lists_cursor"
         val json = Json { ignoreUnknownKeys = true }
     }
 }
@@ -372,5 +487,15 @@ internal fun WatchHistoryEntity.toWrite(): ApiProgressWrite? {
             rating = rating.takeIf { it > 0 }?.coerceAtMost(10.0),
             year = year?.take(10),
         ),
+        stream = RememberedStream.decode(stream),
     )
 }
+
+private fun WatchlistEntity.card() = ApiCard(
+    title = title.takeIf { it.isNotBlank() },
+    overview = overview.takeIf { it.isNotBlank() }?.take(5000),
+    posterUrl = posterUrl,
+    backdropUrl = backdropUrl,
+    rating = rating.takeIf { it > 0 }?.coerceAtMost(10.0),
+    year = year?.take(10),
+)

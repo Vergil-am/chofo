@@ -3,6 +3,10 @@ package dev.dogetime.data.sync
 import androidx.room.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import dev.dogetime.data.WatchHistoryRepository
+import dev.dogetime.data.WatchlistRepository
+import dev.dogetime.domain.RememberedStream
+import dev.dogetime.domain.WatchStatus
+import kotlinx.coroutines.flow.first
 import dev.dogetime.data.local.AppDatabase
 import dev.dogetime.data.local.WatchHistoryEntity
 import dev.dogetime.domain.MediaItem
@@ -44,6 +48,16 @@ class WatchSyncMappingTest {
     }
 
     @Test
+    fun aRememberedStreamGoesUpWithItsRow() {
+        val stream = RememberedStream(RememberedStream.Kind.Direct, url = "https://cdn.example/a.mkv", headers = mapOf("Referer" to "x"))
+        assertEquals(stream, row("Movie", null, null).copy(stream = stream.encode()).toWrite()?.stream)
+        assertNull(row("Movie", null, null).copy(stream = "not json").toWrite()?.stream)
+        // Only fields that are set are sent: the API refuses nulls where it expects text.
+        val sent = ChofoApi.json.encodeToString(ApiProgressWrite.serializer(), row("Movie", null, null).copy(stream = stream.encode()).toWrite()!!)
+        assertTrue(""""stream":{"kind":"direct","url":"https://cdn.example/a.mkv","headers":{"Referer":"x"}}""" in sent, sent)
+    }
+
+    @Test
     fun rowsTheApiWouldRejectAreSkipped() {
         assertNull(row("Tv", null, null).toWrite())
         assertNull(row("Movie", 1, 1).toWrite())
@@ -70,10 +84,14 @@ class WatchSyncIntegrationTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val api = ChofoApi(baseUrl)
         val history = WatchHistoryRepository(db.watchHistoryDao(), scope)
+        val watchlist = WatchlistRepository(db.watchlistDao())
         val accounts = AccountRepository(api, db.preferenceDao(), scope)
         // Long delays: the test runs every sync itself.
-        val sync = WatchSync(api, accounts, db.watchHistoryDao(), db.preferenceDao(), null, scope, urgentDelayMs = 3_600_000)
-            .also { history.listener = it }
+        val sync = WatchSync(api, accounts, db.watchHistoryDao(), db.preferenceDao(), null, scope, urgentDelayMs = 3_600_000, watchlist = db.watchlistDao())
+            .also {
+                history.listener = it
+                watchlist.listener = it
+            }
 
         init {
             dbs += db
@@ -148,6 +166,46 @@ class WatchSyncIntegrationTest {
         assertNotNull(phone.row(MediaType.Tv, 247718, 1, 1))
         laptop.syncNow()
         assertNull(laptop.row(MediaType.Tv, 247718, 1, 2))
+    }
+
+    @Test
+    fun theStreamAndTheWatchlistFollowTheUser() = live {
+        val username = "app_${Random.nextInt(1_000_000)}"
+        val phone = Device()
+        val laptop = Device()
+        phone.accounts.awaitLoaded()
+        laptop.accounts.awaitLoaded()
+        phone.accounts.signUp(username, "$username@chofo.test", "password123")
+        laptop.accounts.signIn(username, "password123")
+
+        // Started on the phone from a torrent, and two titles listed.
+        val torrent = RememberedStream(RememberedStream.Kind.Torrent, label = "1080p · Torrentio", addonId = "torrentio", magnet = "magnet:?xt=urn:btih:abc", fileIndex = 2)
+        phone.history.saveProgress(WatchTarget.Episode(247718, 1, 3), show, 600_000, 3_600_000, urgent = true, stream = torrent)
+        phone.watchlist.set(show, WatchStatus.Watching)
+        phone.watchlist.set(movie, WatchStatus.PlanToWatch)
+        phone.syncNow()
+
+        laptop.syncNow()
+        assertEquals(torrent, laptop.history.rememberedStream(MediaType.Tv, 247718, 1, 3))
+        val listed = laptop.watchlist.observeAll().first()
+        assertEquals(setOf(show.id to WatchStatus.Watching, movie.id to WatchStatus.PlanToWatch), listed.map { it.item.id to it.status }.toSet())
+        assertEquals("Fight Club", listed.first { it.item.id == movie.id }.item.title)
+
+        // The laptop plays the downloaded copy (no stream): the phone keeps the torrent.
+        delay(5)
+        laptop.history.saveProgress(WatchTarget.Episode(247718, 1, 3), show, 900_000, 3_600_000, urgent = true)
+        // Moved on the laptop, removed on the phone: both changes reach the other device.
+        laptop.watchlist.set(movie, WatchStatus.Completed)
+        phone.watchlist.remove(MediaType.Tv, show.id)
+        laptop.syncNow()
+        phone.syncNow()
+        laptop.syncNow()
+        assertEquals(torrent, phone.history.rememberedStream(MediaType.Tv, 247718, 1, 3))
+        assertEquals(900_000, phone.row(MediaType.Tv, 247718, 1, 3)?.positionMs)
+        assertEquals(listOf(movie.id to WatchStatus.Completed), phone.watchlist.observeAll().first().map { it.item.id to it.status })
+        assertEquals(listOf(movie.id to WatchStatus.Completed), laptop.watchlist.observeAll().first().map { it.item.id to it.status })
+        // Nothing left to send once the server has it all.
+        assertTrue(phone.db.watchlistDao().pending().isEmpty())
     }
 
     @Test

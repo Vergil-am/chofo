@@ -64,6 +64,7 @@ import coil3.ImageLoader
 import coil3.compose.setSingletonImageLoaderFactory
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import dev.dogetime.di.AppContainer
+import dev.dogetime.domain.WatchTarget
 import dev.dogetime.domain.DownloadStatus
 import dev.dogetime.domain.MediaItem
 import dev.dogetime.navigation.Destination
@@ -241,7 +242,7 @@ fun App() {
         }
 
         // Tab ViewModels live here so switching tabs keeps their state.
-        val homeViewModel = remember { HomeViewModel(container.repository, container.favorites, container.watchHistory, container.watchSync::refresh) }
+        val homeViewModel = remember { HomeViewModel(container.repository, container.favorites, container.watchHistory, container.watchSync::refresh, container.watchlist, container.nextEpisodes) }
         val accountViewModel = remember { AccountViewModel(container.accounts, container.watchSync) }
         val streamAddonsViewModel = remember { dev.dogetime.ui.settings.StreamAddonsViewModel(container.streamAddons) }
         val browseViewModel = remember { BrowseViewModel(container.repository) }
@@ -336,6 +337,36 @@ fun App() {
                                                 browseViewModel.selectFilter(type, category)
                                                 navigator.selectTab(Destination.Browse)
                                             },
+                                            onOpenWatchlist = { navigator.open(Destination.Watchlist) },
+                                            onContinue = { history ->
+                                                if (offlineLookup?.isActive != true) {
+                                                    offlineLookup = appUiScope.launch {
+                                                        navigator.open(continueWatching(container, history))
+                                                    }
+                                                }
+                                            },
+                                            continueActions = dev.dogetime.ui.components.ContinueWatchingActions(
+                                                onDetails = { openDetails(it.mediaItem) },
+                                                onStartOver = { history ->
+                                                    if (offlineLookup?.isActive != true) {
+                                                        offlineLookup = appUiScope.launch {
+                                                            navigator.open(continueWatching(container, history, fromBeginning = true))
+                                                        }
+                                                    }
+                                                },
+                                                onRemove = { history ->
+                                                    appUiScope.launch {
+                                                        container.watchHistory.deleteByMedia(history.mediaItem.type, history.mediaItem.id)
+                                                    }
+                                                },
+                                            ),
+                                        )
+                                        Destination.Watchlist -> dev.dogetime.ui.watchlist.WatchlistScreen(
+                                            watchlist = container.watchlist,
+                                            onOpen = openDetails,
+                                            onBack = { navigator.back() },
+                                            modifier = destModifier,
+                                            bottomInset = bottomInset,
                                         )
                                         Destination.Browse -> BrowseScreen(
                                             viewModel = browseViewModel,
@@ -377,6 +408,7 @@ fun App() {
                                             repository = container.repository,
                                             favorites = container.favorites,
                                             watchHistory = container.watchHistory,
+                                            watchlist = container.watchlist,
                                             onBack = { navigator.back() },
                                             onWatch = { target, title, backdropUrl, mediaItem ->
                                                 // The lookup reads the database and disk, so it runs off the main
@@ -403,7 +435,15 @@ fun App() {
                                             },
                                             target = targetDestination.target,
                                             title = targetDestination.title,
-                                            createPlayerViewModel = container::playerViewModel,
+                                            // "Start from the beginning" applies to the first player only, not
+                                            // after a change of source mid-way.
+                                            createPlayerViewModel = remember(targetDestination) {
+                                                var fromBeginning = targetDestination.fromBeginning
+                                                val factory: dev.dogetime.ui.player.PlayerViewModelFactory = { source ->
+                                                    container.playerViewModel(source, startFromBeginning = fromBeginning).also { fromBeginning = false }
+                                                }
+                                                factory
+                                            },
                                             backdropUrl = targetDestination.backdropUrl,
                                             mediaItem = targetDestination.mediaItem,
                                             onBack = { navigator.back() },
@@ -411,7 +451,7 @@ fun App() {
                                         )
                                         is Destination.OfflineWatch -> VideoPlayerScreen(
                                             source = PlaybackSource.Download(targetDestination.item),
-                                            createViewModel = container::playerViewModel,
+                                            createViewModel = { source -> container.playerViewModel(source, targetDestination.fromBeginning) },
                                             onBack = { navigator.back() },
                                             onOpenExternal = null,
                                             modifier = destModifier,
@@ -588,4 +628,35 @@ private fun NavBarTabItem(
             color = iconColor,
         )
     }
+}
+
+/**
+ * Where a Continue Watching card leads: the movie or episode itself, playing the stream it was
+ * last played with (or the downloaded copy), rather than the title's page. The title is looked
+ * up first for its IMDb and Kitsu ids, which the add-ons and web sources need.
+ */
+private suspend fun continueWatching(
+    container: AppContainer,
+    history: dev.dogetime.domain.WatchHistoryItem,
+    fromBeginning: Boolean = false,
+): Destination {
+    val media = history.mediaItem
+    val details = try {
+        kotlinx.coroutines.withTimeoutOrNull(8_000) { container.repository.details(media.type, media.id) }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null // offline: the remembered stream may still play
+    }
+    val season = history.season
+    val episode = history.episode
+    val target = if (season != null && episode != null) {
+        WatchTarget.Episode(media.id, season, episode, imdbId = details?.imdbId, kitsuId = details?.kitsuId)
+    } else {
+        WatchTarget.Movie(media.id, imdbId = details?.imdbId, kitsuId = details?.kitsuId)
+    }
+    val title = if (season != null && episode != null) "${media.title} S${season}E$episode" else media.title
+    val item = details?.item ?: media
+    container.offlineCopies.findOfflineCopy(target, title, media.type)?.let { return Destination.OfflineWatch(it, fromBeginning) }
+    return Destination.Watch(target, title, item.backdropUrl, item, resumeLastStream = true, fromBeginning = fromBeginning)
 }

@@ -38,7 +38,7 @@ class MigrationTest {
             )
         }
 
-        helper.runMigrationsAndValidate(5, ALL_MIGRATIONS.toList()).use { db ->
+        helper.runMigrationsAndValidate(6, ALL_MIGRATIONS.toList()).use { db ->
             assertEquals(listOf("Fight Club"), db.strings("SELECT title FROM favorites"))
         }
     }
@@ -91,6 +91,24 @@ class MigrationTest {
             assertEquals(listOf("Fight Club"), db.strings("SELECT title FROM downloads"))
             db.execSQL("INSERT INTO preferences (`key`, value) VALUES ('theme', 'mocha')")
             assertEquals(listOf("mocha"), db.strings("SELECT value FROM preferences"))
+        }
+    }
+
+    @Test
+    fun migrate5To6KeepsHistoryWithoutAStreamAndAddsTheWatchlist() {
+        helper.createDatabase(5).use { db ->
+            db.execSQL(
+                "INSERT INTO watch_history VALUES " +
+                    "('Movie:550', 550, 'Movie', 'Fight Club', '', NULL, NULL, 8.4, '1999', NULL, NULL, 60000, 8000000, 1000)",
+            )
+        }
+
+        helper.runMigrationsAndValidate(6, listOf(MIGRATION_5_6)).use { db ->
+            assertEquals(listOf("Fight Club"), db.strings("SELECT title FROM watch_history WHERE stream IS NULL"))
+            db.execSQL(
+                "INSERT INTO watchlist VALUES (550, 'Movie', 'PlanToWatch', 'Fight Club', '', NULL, NULL, 8.4, '1999', 2000, 0, 1)",
+            )
+            assertEquals(listOf("PlanToWatch"), db.strings("SELECT status FROM watchlist"))
         }
     }
 

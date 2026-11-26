@@ -30,6 +30,7 @@ import dev.dogetime.core.TorrentProgress
 import dev.dogetime.core.TorrentStream
 import dev.dogetime.core.Torrents
 import dev.dogetime.domain.MediaItem
+import dev.dogetime.domain.RememberedStream
 import dev.dogetime.domain.WatchTarget
 import dev.dogetime.ui.player.PlaybackSource
 import dev.dogetime.ui.player.PlayerViewModelFactory
@@ -51,6 +52,8 @@ data class TorrentPick(
     val episode: Int? = null,
     val directUrl: String? = null,
     val headers: Map<String, String> = emptyMap(),
+    /** How to open it again later, saved with the watch progress. */
+    val remembered: RememberedStream? = null,
 )
 
 /**
@@ -74,6 +77,7 @@ internal fun MagnetPlayer(
     if (direct != null) {
         DirectStreamPlayer(
             stream = CapturedStream(direct, pick.headers),
+            remembered = pick.remembered,
             title = title,
             target = target,
             mediaItem = mediaItem,
@@ -124,7 +128,7 @@ internal fun MagnetPlayer(
     if (opened != null) {
         Box(modifier.fillMaxSize()) {
             VideoPlayerScreen(
-                source = PlaybackSource.Stream(opened.stream, title, target, mediaItem),
+                source = PlaybackSource.Stream(opened.stream, title, target, mediaItem, pick.remembered),
                 createViewModel = createPlayerViewModel,
                 onBack = onBack,
                 onOpenExternal = ExternalPlayer.name?.let {
@@ -169,6 +173,7 @@ internal fun MagnetPlayer(
 @Composable
 private fun DirectStreamPlayer(
     stream: CapturedStream,
+    remembered: RememberedStream?,
     title: String,
     target: WatchTarget?,
     mediaItem: MediaItem?,
@@ -185,7 +190,7 @@ private fun DirectStreamPlayer(
     }
     Box(modifier.fillMaxSize()) {
         VideoPlayerScreen(
-            source = PlaybackSource.Stream(stream, title, target, mediaItem),
+            source = PlaybackSource.Stream(stream, title, target, mediaItem, remembered),
             createViewModel = createPlayerViewModel,
             onBack = onBack,
             onOpenExternal = ExternalPlayer.name?.let {

@@ -6,6 +6,9 @@ import dev.dogetime.core.runForUiState
 import dev.dogetime.data.FavoritesRepository
 import dev.dogetime.data.MediaRepository
 import dev.dogetime.data.WatchHistoryRepository
+import dev.dogetime.data.WatchlistRepository
+import dev.dogetime.domain.WatchStatus
+import kotlinx.coroutines.flow.flowOf
 import dev.dogetime.domain.Episode
 import dev.dogetime.domain.MediaDetails
 import dev.dogetime.domain.MediaType
@@ -31,6 +34,7 @@ class DetailsViewModel(
     private val type: MediaType,
     private val id: Int,
     watchHistory: WatchHistoryRepository? = null,
+    private val watchlist: WatchlistRepository? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<UiState<MediaDetails>>(UiState.Loading)
@@ -43,6 +47,10 @@ class DetailsViewModel(
 
     val isFavorite: StateFlow<Boolean> = favorites.observeIsFavorite(type, id)
         .stateIn(scope, SharingStarted.Eagerly, initialValue = false)
+
+    /** Where the title is on the watchlist, or null when it isn't. */
+    val watchStatus: StateFlow<WatchStatus?> = (watchlist?.observeStatus(type, id) ?: flowOf(null))
+        .stateIn(scope, SharingStarted.Eagerly, initialValue = null)
 
     val episodeProgress: StateFlow<Map<Pair<Int, Int>, Float>> = (watchHistory?.observeByMedia(type, id) ?: emptyFlow())
         .map { list ->
@@ -75,6 +83,13 @@ class DetailsViewModel(
     fun toggleFavorite() {
         val item = (_state.value as? UiState.Success)?.data?.item ?: return
         scope.launch { favorites.toggle(item) }
+    }
+
+    /** Puts the title on the watchlist with [status], or takes it off with null. */
+    fun setWatchStatus(status: WatchStatus?) {
+        val list = watchlist ?: return
+        val item = (_state.value as? UiState.Success)?.data?.item ?: return
+        scope.launch { if (status == null) list.remove(type, id) else list.set(item, status) }
     }
 
     fun selectSeason(seasonNumber: Int) {

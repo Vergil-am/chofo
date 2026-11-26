@@ -62,6 +62,8 @@ import dev.dogetime.core.UiState
 import dev.dogetime.domain.BrowseCategory
 import dev.dogetime.domain.MediaItem
 import dev.dogetime.domain.MediaType
+import dev.dogetime.domain.WatchHistoryItem
+import dev.dogetime.ui.components.ContinueWatchingActions
 import dev.dogetime.domain.browseCategories
 import dev.dogetime.domain.popularCategory
 import dev.dogetime.ui.components.ErrorBox
@@ -81,8 +83,14 @@ fun HomeScreen(
     bottomInset: Dp = 0.dp,
     isWide: Boolean? = null,
     onNavigateToBrowse: (MediaType, BrowseCategory?) -> Unit = { _, _ -> },
+    onOpenWatchlist: () -> Unit = {},
+    /** A Continue Watching card: plays that movie or episode again. */
+    onContinue: (WatchHistoryItem) -> Unit = { onOpen(it.mediaItem) },
+    /** The ⋮ menu on each Continue Watching card. */
+    continueActions: ContinueWatchingActions? = null,
 ) {
     val content by viewModel.state.collectAsState()
+    val watchlist by viewModel.watchlist.collectAsState()
     val favorites by viewModel.favorites.collectAsState()
     val watchHistory by viewModel.watchHistory.collectAsState()
 
@@ -116,7 +124,13 @@ fun HomeScreen(
 
             if (watchHistory.isNotEmpty()) {
                 item {
-                    ContinueWatchingRow("Continue Watching", watchHistory, onOpen)
+                    ContinueWatchingRow("Continue Watching", watchHistory, onContinue, actions = continueActions)
+                }
+            }
+
+            if (watchlist.isNotEmpty()) {
+                item {
+                    MediaRow("Your Watchlist", watchlist, onOpen, onViewAll = onOpenWatchlist)
                 }
             }
 

@@ -1,5 +1,13 @@
 package dev.dogetime.ui.components
 
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -521,8 +529,9 @@ fun BackdropRow(
 fun ContinueWatchingRow(
     title: String,
     historyItems: List<dev.dogetime.domain.WatchHistoryItem>,
-    onItemClick: (MediaItem) -> Unit,
+    onItemClick: (dev.dogetime.domain.WatchHistoryItem) -> Unit,
     modifier: Modifier = Modifier,
+    actions: ContinueWatchingActions? = null,
 ) {
     Column(modifier = modifier) {
         Text(
@@ -540,18 +549,28 @@ fun ContinueWatchingRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(historyItems, key = { "${it.mediaItem.type}-${it.mediaItem.id}" }) { item ->
-                ContinueWatchingCard(item = item, onClick = { onItemClick(item.mediaItem) })
+                ContinueWatchingCard(item = item, onClick = { onItemClick(item) }, actions = actions)
             }
         }
     }
 }
+
+/** What the ⋮ menu on a Continue Watching card offers. */
+class ContinueWatchingActions(
+    val onDetails: (dev.dogetime.domain.WatchHistoryItem) -> Unit,
+    val onStartOver: (dev.dogetime.domain.WatchHistoryItem) -> Unit,
+    val onRemove: (dev.dogetime.domain.WatchHistoryItem) -> Unit,
+)
 
 @Composable
 fun ContinueWatchingCard(
     item: dev.dogetime.domain.WatchHistoryItem,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    actions: ContinueWatchingActions? = null,
 ) {
+    // The menu opens from the ⋮ button, a long press (touch) or a right click (mouse).
+    var menuOpen by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val scale by animateFloatAsState(
@@ -568,10 +587,24 @@ fun ContinueWatchingCard(
                 scaleY = scale
             }
             .hoverable(interactionSource)
-            .clickable(
+            .then(
+                if (actions == null) Modifier else Modifier.pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                                event.changes.forEach { it.consume() }
+                                menuOpen = true
+                            }
+                        }
+                    }
+                },
+            )
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick,
+                onLongClick = if (actions != null) ({ menuOpen = true }) else null,
             ),
     ) {
         Box(
@@ -637,27 +670,71 @@ fun ContinueWatchingCard(
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text(
-            text = item.mediaItem.title,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = Mocha.Text,
-        )
-        val subtitle = if (item.season != null && item.episode != null) {
-            "Episode ${item.episode}"
-        } else {
-            val mins = (item.positionMs / 60_000L).coerceAtLeast(1)
-            "$mins min watched"
+        Row(verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = item.mediaItem.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = Mocha.Text,
+                )
+                val subtitle = if (item.season != null && item.episode != null) {
+                    "Episode ${item.episode}"
+                } else {
+                    val mins = (item.positionMs / 60_000L).coerceAtLeast(1)
+                    "$mins min watched"
+                }
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Mocha.Subtext0,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (actions != null) ContinueWatchingMenu(item, actions, menuOpen, onOpenChange = { menuOpen = it })
         }
-        Text(
-            text = subtitle,
-            style = MaterialTheme.typography.labelSmall,
-            color = Mocha.Subtext0,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+    }
+}
+
+@Composable
+private fun ContinueWatchingMenu(
+    item: dev.dogetime.domain.WatchHistoryItem,
+    actions: ContinueWatchingActions,
+    open: Boolean,
+    onOpenChange: (Boolean) -> Unit,
+) {
+    Box {
+        IconButton(onClick = { onOpenChange(true) }, modifier = Modifier.size(28.dp)) {
+            Icon(PlayerIcons.More, contentDescription = "More options", tint = Mocha.Subtext0, modifier = Modifier.size(18.dp))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { onOpenChange(false) }) {
+            val isEpisode = item.season != null && item.episode != null
+            DropdownMenuItem(
+                text = { Text(if (isEpisode) "Go to show" else "Go to details") },
+                onClick = {
+                    onOpenChange(false)
+                    actions.onDetails(item)
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(if (isEpisode) "Start episode from the beginning" else "Start from the beginning") },
+                onClick = {
+                    onOpenChange(false)
+                    actions.onStartOver(item)
+                },
+            )
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Remove from Continue Watching", color = MaterialTheme.colorScheme.error) },
+                onClick = {
+                    onOpenChange(false)
+                    actions.onRemove(item)
+                },
+            )
+        }
     }
 }
 

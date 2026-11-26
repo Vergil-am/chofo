@@ -72,4 +72,17 @@ internal val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
-internal val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+/** v6 remembers the stream played for each history row, and added the watchlist table. */
+internal val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(connection: SQLiteConnection) {
+        connection.execSQL("ALTER TABLE `watch_history` ADD COLUMN `stream` TEXT")
+        connection.execSQL(
+            "CREATE TABLE IF NOT EXISTS `watchlist` (`id` INTEGER NOT NULL, `type` TEXT NOT NULL, " +
+                "`status` TEXT NOT NULL, `title` TEXT NOT NULL, `overview` TEXT NOT NULL, `posterUrl` TEXT, " +
+                "`backdropUrl` TEXT, `rating` REAL NOT NULL, `year` TEXT, `updatedAt` INTEGER NOT NULL, " +
+                "`deleted` INTEGER NOT NULL, `pending` INTEGER NOT NULL, PRIMARY KEY(`id`, `type`))",
+        )
+    }
+}
+
+internal val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)

@@ -81,8 +81,15 @@ import dev.chrisbanes.haze.glass.GlassStyle
 import dev.chrisbanes.haze.glass.hazeGlass
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import dev.dogetime.domain.FINISHED_FRACTION
 import dev.dogetime.Mocha
 import dev.dogetime.core.UiState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import dev.dogetime.data.WatchlistRepository
+import dev.dogetime.domain.WatchStatus
 import dev.dogetime.data.FavoritesRepository
 import dev.dogetime.data.MediaRepository
 import dev.dogetime.data.WatchHistoryRepository
@@ -118,9 +125,10 @@ fun DetailsScreen(
     modifier: Modifier = Modifier,
     watchHistory: WatchHistoryRepository? = null,
     initialItem: MediaItem? = null,
+    watchlist: WatchlistRepository? = null,
 ) {
     // Keyed by type and id, so opening a different title gets a fresh ViewModel.
-    val viewModel = remember(type, id) { DetailsViewModel(repository, favorites, type, id, watchHistory) }
+    val viewModel = remember(type, id) { DetailsViewModel(repository, favorites, type, id, watchHistory, watchlist) }
     DisposableEffect(viewModel) {
         onDispose { viewModel.clear() }
     }
@@ -128,6 +136,7 @@ fun DetailsScreen(
     val episodes by viewModel.episodes.collectAsState()
     val isFavorite by viewModel.isFavorite.collectAsState()
     val episodeProgress by viewModel.episodeProgress.collectAsState()
+    val watchStatus by viewModel.watchStatus.collectAsState()
 
     val detailsData = (state as? UiState.Success)?.data ?: initialItem?.let {
         MediaDetails(
@@ -164,6 +173,9 @@ fun DetailsScreen(
                 },
                 isFavorite = isFavorite,
                 onToggleFavorite = viewModel::toggleFavorite,
+                watchlist = if (watchlist != null && state is UiState.Success) {
+                    WatchlistControl(watchStatus, viewModel::setWatchStatus)
+                } else null,
                 onOpen = onOpen,
                 isLoading = state is UiState.Loading,
             )
@@ -285,6 +297,7 @@ private fun DetailsContent(
     onWatch: (target: WatchTarget, title: String) -> Unit,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
+    watchlist: WatchlistControl?,
     onOpen: (MediaItem) -> Unit,
     isLoading: Boolean = false,
 ) {
@@ -295,10 +308,10 @@ private fun DetailsContent(
         val heroHeight = if (isMediumOrWider) maxHeight else maxHeight * 0.7f
 
         if (wide && details.seasons.isNotEmpty()) {
-            WideDetails(details, episodes, episodeProgress, onSeasonSelected, onWatch, isFavorite, onToggleFavorite, onOpen, heroHeight)
+            WideDetails(details, episodes, episodeProgress, onSeasonSelected, onWatch, isFavorite, onToggleFavorite, watchlist, onOpen, heroHeight)
         } else {
             LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                detailsSection(details, onWatch, isFavorite, onToggleFavorite, heroHeight = heroHeight, includeOverviewInHero = isMediumOrWider, episodeProgress = episodeProgress)
+                detailsSection(details, onWatch, isFavorite, onToggleFavorite, watchlist, heroHeight = heroHeight, includeOverviewInHero = isMediumOrWider, episodeProgress = episodeProgress)
                 if (isLoading) {
                     item {
                         Box(
@@ -348,6 +361,7 @@ private fun WideDetails(
     onWatch: (target: WatchTarget, title: String) -> Unit,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
+    watchlist: WatchlistControl?,
     onOpen: (MediaItem) -> Unit,
     heroHeight: Dp,
 ) {
@@ -393,6 +407,7 @@ private fun WideDetails(
                     onWatch = onWatch,
                     isFavorite = isFavorite,
                     onToggleFavorite = onToggleFavorite,
+                    watchlist = watchlist,
                     drawBackdrop = false,
                     onHeroHeightChanged = { heroContentHeightPx = it },
                     heroHeight = heroHeight,
@@ -459,6 +474,7 @@ private fun LazyListScope.detailsSection(
     onWatch: (target: WatchTarget, title: String) -> Unit,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
+    watchlist: WatchlistControl?,
     drawBackdrop: Boolean = true,
     onHeroHeightChanged: (Int) -> Unit = {},
     heroHeight: Dp = 400.dp,
@@ -620,7 +636,7 @@ private fun LazyListScope.detailsSection(
                             downloadedForShow.map { it.second }.minWithOrNull(compareBy({ it.first }, { it.second })) ?: (1 to 1)
                         } else {
                             val inProgress = episodeProgress.entries
-                                .filter { it.value > 0.05f && it.value < 0.92f }
+                                .filter { it.value > 0.05f && it.value < FINISHED_FRACTION }
                                 .minByOrNull { it.key.first * 1000 + it.key.second }
                                 ?.key
                             inProgress ?: (1 to 1)
@@ -662,6 +678,7 @@ private fun LazyListScope.detailsSection(
                             modifier = Modifier.size(22.dp),
                         )
                     }
+                    watchlist?.let { WatchlistButton(it) }
                 }
 
                 // On medium+ widths, genres + overview sit inside the hero backdrop.
@@ -1088,6 +1105,59 @@ private fun CastCard(member: CastMember) {
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
             )
+        }
+    }
+}
+
+/** The title's watchlist status, and how to change it (null takes it off the list). */
+private class WatchlistControl(val status: WatchStatus?, val onSet: (WatchStatus?) -> Unit)
+
+/** A pill showing the watchlist status; tapping it opens the statuses to pick from. */
+@Composable
+private fun WatchlistButton(control: WatchlistControl) {
+    var open by remember { mutableStateOf(false) }
+    val status = control.status
+    Box {
+        Surface(
+            onClick = { open = true },
+            shape = RoundedCornerShape(50),
+            color = if (status != null) Mocha.Mauve.copy(alpha = 0.25f) else Mocha.Surface0.copy(alpha = 0.7f),
+            contentColor = if (status != null) Mocha.Mauve else Mocha.Text,
+            modifier = Modifier.height(44.dp),
+        ) {
+            Box(Modifier.padding(horizontal = 18.dp), contentAlignment = Alignment.Center) {
+                Text(
+                    text = if (status != null) "✓ ${status.label}" else "+ Watchlist",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            WatchStatus.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (option == status) "✓ ${option.label}" else option.label,
+                            fontWeight = if (option == status) FontWeight.SemiBold else null,
+                        )
+                    },
+                    onClick = {
+                        open = false
+                        control.onSet(option)
+                    },
+                )
+            }
+            if (status != null) {
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("Remove from watchlist", color = MaterialTheme.colorScheme.error) },
+                    onClick = {
+                        open = false
+                        control.onSet(null)
+                    },
+                )
+            }
         }
     }
 }

@@ -32,6 +32,8 @@ data class WatchHistoryEntity(
     val durationMs: Long,
     /** Timestamp when this item was last watched (epoch milliseconds). */
     val lastWatchedAt: Long,
+    /** The stream last played, as [dev.dogetime.domain.RememberedStream] JSON, or null. */
+    val stream: String? = null,
 ) {
     companion object {
         fun key(type: String, id: Int, season: Int? = null, episode: Int? = null): String =

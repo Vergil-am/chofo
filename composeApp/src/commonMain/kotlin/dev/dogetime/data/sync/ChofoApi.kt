@@ -18,6 +18,7 @@ import io.ktor.http.HttpMethod
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
+import dev.dogetime.domain.RememberedStream
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -72,6 +73,8 @@ data class ApiProgressWrite(
     @SerialName("duration_ms") val durationMs: Long,
     @SerialName("watched_at") val watchedAt: Long,
     val card: ApiCard? = null,
+    /** What was playing; the server keeps the previous one when this is left out. */
+    val stream: RememberedStream? = null,
 )
 
 @Serializable
@@ -84,7 +87,27 @@ data class ApiProgressRow(
     @SerialName("duration_ms") val durationMs: Long = 0,
     @SerialName("watched_at") val watchedAt: Long,
     val card: ApiCard? = null,
+    val stream: RememberedStream? = null,
     val finished: Boolean = false,
+    val deleted: Boolean = false,
+    val rev: Long,
+)
+
+@Serializable
+private data class ApiListPut(
+    val status: String,
+    @SerialName("updated_at") val updatedAt: Long,
+    val card: ApiCard? = null,
+)
+
+/** A title's list status. [status] is one of the API's list statuses. */
+@Serializable
+data class ApiListEntry(
+    val type: String,
+    val id: Int,
+    val status: String,
+    @SerialName("updated_at") val updatedAt: Long,
+    val card: ApiCard? = null,
     val deleted: Boolean = false,
     val rev: Long,
 )
@@ -179,6 +202,28 @@ class ChofoApi(
     suspend fun deleteProgress(token: String, type: String, id: Int, season: Int?, episode: Int?, deletedAt: Long) {
         val path = if (season != null && episode != null) "progress/$type/$id/$season/$episode" else "progress/$type/$id"
         call<Unit>(HttpMethod.Delete, path) {
+            bearerAuth(token)
+            parameter("deleted_at", deletedAt)
+        }
+    }
+
+    suspend fun lists(token: String, since: Long, limit: Int = 500): ApiPage<ApiListEntry> =
+        call(HttpMethod.Get, "lists") {
+            bearerAuth(token)
+            parameter("since", since)
+            parameter("limit", limit)
+        }
+
+    /** Puts a title on a list or moves it; returns the entry as the server now stores it. */
+    suspend fun putList(token: String, type: String, id: Int, status: String, updatedAt: Long, card: ApiCard?): ApiListEntry =
+        call(HttpMethod.Put, "lists/$type/$id") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(json.encodeToString(ApiListPut(status, updatedAt, card)))
+        }
+
+    suspend fun deleteList(token: String, type: String, id: Int, deletedAt: Long) {
+        call<Unit>(HttpMethod.Delete, "lists/$type/$id") {
             bearerAuth(token)
             parameter("deleted_at", deletedAt)
         }

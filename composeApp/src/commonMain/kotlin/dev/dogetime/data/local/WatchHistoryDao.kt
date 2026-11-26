@@ -43,6 +43,10 @@ interface WatchHistoryDao {
     @Query("SELECT * FROM watch_history WHERE id = :id AND type = :type ORDER BY lastWatchedAt DESC LIMIT 1")
     suspend fun getLatestByMedia(id: Int, type: String): WatchHistoryEntity?
 
+    /** The most recent row of a title that has a stream saved with it. */
+    @Query("SELECT * FROM watch_history WHERE id = :id AND type = :type AND stream IS NOT NULL ORDER BY lastWatchedAt DESC LIMIT 1")
+    suspend fun getLatestWithStream(id: Int, type: String): WatchHistoryEntity?
+
     @Upsert
     suspend fun upsert(entry: WatchHistoryEntity)
 

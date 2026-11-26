@@ -49,6 +49,7 @@ import dev.dogetime.core.Torrents
 import dev.dogetime.core.WebEngineGate
 import dev.dogetime.data.addons.StreamAddon
 import dev.dogetime.domain.MediaItem
+import dev.dogetime.domain.RememberedStream
 import dev.dogetime.domain.VideoSource
 import dev.dogetime.domain.WatchTarget
 import dev.dogetime.ui.player.PlaybackSource
@@ -78,6 +79,24 @@ fun WatchScreen(
     mediaItem: MediaItem? = null,
 ) {
     val state by viewModel.state.collectAsState()
+
+    // Opened from Continue Watching: a spinner while the last stream is found, not the menu.
+    if (state.step == WatchStep.SourceMenu && (state.isCheckingRemembered || (state.isResuming && state.remembered != null))) {
+        Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            if (backdropUrl != null) BlurredBackdrop(backdropUrl, Modifier.fillMaxSize())
+            WatchPage(title = title, pageShown = false, onBack = onBack, onChangeSource = viewModel::backToSourceMenu) {
+                Column(
+                    Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+                ) {
+                    CircularProgressIndicator()
+                    Text(state.remembered?.label?.let { "Opening $it…" } ?: "Opening…")
+                }
+            }
+        }
+        return
+    }
 
     when (val step = state.step) {
         is WatchStep.Torrent -> key(step.pick) {
@@ -125,12 +144,16 @@ fun WatchScreen(
             // Torrents look titles up by IMDb id or Kitsu id.
             addons = state.addons,
             onPickTorrents = if (Torrents.isSupported && state.addons.isNotEmpty()) viewModel::openTorrents else null,
+            remembered = state.remembered,
+            isResuming = state.isResuming,
+            onResume = viewModel::resumeRemembered,
             modifier = modifier,
         )
         // Keyed so a newly picked source starts with a fresh page and no captured stream.
         is WatchStep.Source -> key(step.source) {
             SourcePlayer(
                 url = step.source.url(target),
+                remembered = RememberedStream.of(step.source),
                 title = title,
                 onBack = onBack,
                 onChangeSource = viewModel::backToSourceMenu,
@@ -154,6 +177,9 @@ private fun SourcePicker(
     onPick: (VideoSource) -> Unit,
     addons: List<StreamAddon>,
     onPickTorrents: ((StreamAddon) -> Unit)?,
+    remembered: RememberedStream?,
+    isResuming: Boolean,
+    onResume: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -167,6 +193,35 @@ private fun SourcePicker(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
             ) {
+                if (remembered != null) {
+                    Text("Continue with the same stream", style = MaterialTheme.typography.titleMedium)
+                    Button(
+                        onClick = onResume,
+                        enabled = !isResuming,
+                        modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth(),
+                    ) {
+                        if (isResuming) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Text(
+                                remembered.label?.takeIf { it.isNotBlank() } ?: "Last stream",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    remembered.fileName?.takeIf { remembered.kind != RememberedStream.Kind.Web }?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 320.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
                 if (target.kitsuId == null) {
                     Text("Choose a source", style = MaterialTheme.typography.titleMedium)
                     VideoSource.entries.forEach { source ->
@@ -207,6 +262,7 @@ private fun SourcePicker(
 @Composable
 private fun SourcePlayer(
     url: String,
+    remembered: RememberedStream,
     title: String,
     onBack: () -> Unit,
     onChangeSource: () -> Unit,
@@ -245,7 +301,7 @@ private fun SourcePlayer(
     if (found != null) {
         Box(modifier.fillMaxSize()) {
             VideoPlayerScreen(
-                source = PlaybackSource.Stream(found, title, target, mediaItem),
+                source = PlaybackSource.Stream(found, title, target, mediaItem, remembered),
                 createViewModel = createPlayerViewModel,
                 onBack = onBack,
                 onOpenExternal = ExternalPlayer.name?.let {

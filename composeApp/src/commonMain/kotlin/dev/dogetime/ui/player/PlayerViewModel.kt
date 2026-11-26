@@ -10,13 +10,17 @@ import dev.dogetime.data.StremioSubtitlesApi
 import dev.dogetime.data.SubdlApi
 import dev.dogetime.data.SubtitleDownloader
 import dev.dogetime.data.WatchHistoryRepository
+import dev.dogetime.data.WatchlistRepository
+import dev.dogetime.data.CompletionTracker
 import dev.dogetime.data.YtsSubsApi
 import dev.dogetime.domain.DownloadItem
 import dev.dogetime.domain.MediaItem
 import dev.dogetime.domain.MediaType
+import dev.dogetime.domain.RememberedStream
 import dev.dogetime.domain.Subtitle
 import dev.dogetime.domain.SubtitleGroup
 import dev.dogetime.domain.WatchTarget
+import dev.dogetime.domain.isFinished
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -35,6 +39,8 @@ sealed interface PlaybackSource {
         val title: String,
         val target: WatchTarget? = null,
         val mediaItem: MediaItem? = null,
+        /** How to open this stream again, saved with the progress. Null when it can't be. */
+        val remembered: RememberedStream? = null,
     ) : PlaybackSource
 
     /** A finished download. Its files are looked up on disk before playback starts. */
@@ -47,6 +53,7 @@ data class Playback(
     val title: String,
     val target: WatchTarget?,
     val mediaItem: MediaItem?,
+    val remembered: RememberedStream? = null,
 )
 
 /** One subtitle provider's results. */
@@ -108,6 +115,10 @@ class PlayerViewModel(
     private val subdl: SubdlApi,
     private val openSubtitles: OpenSubtitlesApi,
     private val ytsSubs: YtsSubsApi,
+    private val watchlist: WatchlistRepository? = null,
+    /** Ignore the saved position: "Start from the beginning". */
+    private val startFromBeginning: Boolean = false,
+    private val completion: CompletionTracker? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PlayerUiState())
@@ -126,7 +137,7 @@ class PlayerViewModel(
     init {
         when (source) {
             is PlaybackSource.Stream -> start(
-                Playback(source.stream, source.title, source.target, source.mediaItem),
+                Playback(source.stream, source.title, source.target, source.mediaItem, source.remembered),
                 searchSubtitles = true,
             )
             is PlaybackSource.Download -> scope.launch { openDownload(source.item) }
@@ -292,6 +303,7 @@ class PlayerViewModel(
 
     /** Where to resume playback of a [durationMs]-long video, or null to start from the beginning. */
     suspend fun resumePosition(durationMs: Long): Long? {
+        if (startFromBeginning) return null
         val playback = _state.value.playback ?: return null
         val target = playback.target ?: return null
         val mediaItem = playback.mediaItem ?: return null
@@ -314,9 +326,13 @@ class PlayerViewModel(
     fun saveProgress(positionMs: Long, durationMs: Long, urgent: Boolean = false) {
         val (target, mediaItem) = trackedMedia() ?: return
         if (positionMs <= 0) return
+        val stream = _state.value.playback?.remembered
         scope.launch {
             try {
-                watchHistory.saveProgress(target, mediaItem, positionMs, durationMs, urgent)
+                watchHistory.saveProgress(target, mediaItem, positionMs, durationMs, urgent, stream)
+                // Playing something planned moves it to Watching; finishing it, to Completed.
+                if (urgent && !isFinished(positionMs, durationMs)) watchlist?.startedWatching(mediaItem, target is WatchTarget.Episode)
+                completion?.onProgress(target, mediaItem, positionMs, durationMs)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -332,7 +348,8 @@ class PlayerViewModel(
     fun saveFinalProgress(positionMs: Long, durationMs: Long) {
         val (target, mediaItem) = trackedMedia() ?: return
         if (positionMs <= 0) return
-        watchHistory.saveProgressDetached(target, mediaItem, positionMs, durationMs)
+        watchHistory.saveProgressDetached(target, mediaItem, positionMs, durationMs, _state.value.playback?.remembered)
+        completion?.onProgress(target, mediaItem, positionMs, durationMs)
     }
 
     private fun trackedMedia(): Pair<WatchTarget, MediaItem>? {
@@ -348,7 +365,7 @@ class PlayerViewModel(
  * positions start over, and nearly finished ones start over too, to rewatch.
  */
 internal fun resumePositionFor(savedMs: Long, durationMs: Long): Long? =
-    savedMs.takeIf { it > RESUME_MIN_MS && it < durationMs * RESUME_MAX_FRACTION }
+    savedMs.takeIf { it > RESUME_MIN_MS && !isFinished(it, durationMs) }
 
 /** Combines the providers' groups into one group per language, sorted by language. */
 internal fun mergeSubtitleGroups(groups: List<SubtitleGroup>): List<SubtitleGroup> =
@@ -357,7 +374,6 @@ internal fun mergeSubtitleGroups(groups: List<SubtitleGroup>): List<SubtitleGrou
         .sortedBy { it.language }
 
 private const val RESUME_MIN_MS = 5_000L
-private const val RESUME_MAX_FRACTION = 0.95f
 
 private fun DownloadItem.watchTarget(mediaId: Int): WatchTarget =
     if (season != null && episode != null) {
