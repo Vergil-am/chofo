@@ -47,11 +47,14 @@ enum class VideoSource(
     private val query: String = "",
     private val imdbForEpisodes: Boolean = true,
 ) {
-    VidSrc("VidSrc", "https://vidsrc.sh/embed"),
-    // These two start their player themselves when asked to in the URL.
-    // VidLink answers episode pages by IMDb id with a server error, so episodes use TMDB ids there.
-    VidLink("VidLink", "https://vidlink.pro", "?autoplay=true", imdbForEpisodes = false),
-    VidCore("VidCore", "https://vidcore.io", "?autoPlay=true");
+    // Web players are switched off for now: only stream add-ons (torrents) are offered. Uncomment
+    // to bring them back; the source menu that listed them is gone, so it needs restoring too.
+    // VidSrc("VidSrc", "https://vidsrc.sh/embed"),
+    // // These two start their player themselves when asked to in the URL.
+    // // VidLink answers episode pages by IMDb id with a server error, so episodes use TMDB ids there.
+    // VidLink("VidLink", "https://vidlink.pro", "?autoplay=true", imdbForEpisodes = false),
+    // VidCore("VidCore", "https://vidcore.io", "?autoPlay=true"),
+    ;
 
     /** Player URL for [target]. */
     fun url(target: WatchTarget): String = when (target) {

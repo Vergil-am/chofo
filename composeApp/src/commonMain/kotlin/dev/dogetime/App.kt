@@ -430,8 +430,9 @@ fun App() {
                                             favorites = container.favorites,
                                             watchHistory = container.watchHistory,
                                             watchlist = container.watchlist,
+                                            nextEpisodes = container.nextEpisodes,
                                             onBack = { navigator.back() },
-                                            onWatch = { target, title, backdropUrl, mediaItem ->
+                                            onWatch = { target, title, backdropUrl, mediaItem, resume ->
                                                 // The lookup reads the database and disk, so it runs off the main
                                                 // thread. The guard stops a double tap from opening the player twice.
                                                 if (offlineLookup?.isActive != true) {
@@ -441,7 +442,7 @@ fun App() {
                                                             if (copy != null) {
                                                                 Destination.OfflineWatch(copy)
                                                             } else {
-                                                                Destination.Watch(target, title, backdropUrl, mediaItem)
+                                                                Destination.Watch(target, title, backdropUrl, mediaItem, resumeLastStream = resume)
                                                             },
                                                         )
                                                     }

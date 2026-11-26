@@ -1,5 +1,6 @@
 package dev.dogetime.ui.watch
 
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.Icon
@@ -93,7 +94,7 @@ fun WatchScreen(
     if (state.step == WatchStep.SourceMenu && (state.isCheckingRemembered || (state.isResuming && state.remembered != null))) {
         Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             if (backdropUrl != null) BlurredBackdrop(backdropUrl, Modifier.fillMaxSize())
-            WatchPage(title = title, pageShown = false, onBack = onBack, onChangeSource = viewModel::backToSourceMenu) {
+            WatchPage(title = title, pageShown = false, onBack = onBack, onChangeSource = viewModel::backToTorrents) {
                 Column(
                     Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -133,8 +134,10 @@ fun WatchScreen(
                 onSelectProvider = viewModel::selectProvider,
                 onRetry = viewModel::loadTorrents,
                 onBack = onBack,
-                onChangeSource = viewModel::backToSourceMenu,
                 onPick = viewModel::playTorrent,
+                remembered = state.remembered,
+                isResuming = state.isResuming,
+                onResume = viewModel::resumeRemembered,
                 onChooseDownload = if (viewModel.canDownload) viewModel::chooseDownload else null,
                 onDismissDownload = viewModel::dismissDownload,
                 onDownload = viewModel::download,
@@ -144,20 +147,8 @@ fun WatchScreen(
                 MessageChip(it, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp))
             }
         }
-        WatchStep.SourceMenu -> SourcePicker(
-            title = title,
-            target = target,
-            backdropUrl = backdropUrl,
-            onBack = onBack,
-            onPick = viewModel::pickSource,
-            // Torrents look titles up by IMDb id or Kitsu id.
-            addons = state.addons,
-            onPickTorrents = if (Torrents.isSupported && state.addons.isNotEmpty()) viewModel::openTorrents else null,
-            remembered = state.remembered,
-            isResuming = state.isResuming,
-            onResume = viewModel::resumeRemembered,
-            modifier = modifier,
-        )
+        // Only shown when no add-on can list streams for this title: there's no source menu any more.
+        WatchStep.SourceMenu -> NoStreamSources(title = title, backdropUrl = backdropUrl, onBack = onBack, modifier = modifier)
         // Keyed so a newly picked source starts with a fresh page and no captured stream.
         is WatchStep.Source -> key(step.source) {
             SourcePlayer(
@@ -176,73 +167,24 @@ fun WatchScreen(
     }
 }
 
-/** The menu of [VideoSource]s and torrents, over the title's backdrop. */
+/** Nothing to pick from: no installed stream add-on serves this title, or torrents don't work here. */
 @Composable
-private fun SourcePicker(
-    title: String,
-    target: WatchTarget,
-    backdropUrl: String?,
-    onBack: () -> Unit,
-    onPick: (VideoSource) -> Unit,
-    addons: List<StreamAddon>,
-    onPickTorrents: ((StreamAddon) -> Unit)?,
-    remembered: RememberedStream?,
-    isResuming: Boolean,
-    onResume: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+private fun NoStreamSources(title: String, backdropUrl: String?, onBack: () -> Unit, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (backdropUrl != null) BlurredBackdrop(backdropUrl, Modifier.fillMaxSize())
         WatchPage(title = title, pageShown = false, onBack = onBack) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
-            ) {
-                if (remembered != null) {
-                    SourceGroupLabel("Continue")
-                    Button(
-                        onClick = onResume,
-                        enabled = !isResuming,
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Mocha.Text, contentColor = Mocha.Crust),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-                        modifier = Modifier.widthIn(max = SourceListWidth).fillMaxWidth(),
-                    ) {
-                        if (isResuming) {
-                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Mocha.Crust)
-                        } else {
-                            Icon(PlayerIcons.Play, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    remembered.label?.takeIf { it.isNotBlank() } ?: "Last stream",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                remembered.fileName?.takeIf { remembered.kind != RememberedStream.Kind.Web }?.let {
-                                    Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
-                        }
-                    }
-                }
-                if (target.kitsuId == null) {
-                    SourceGroupLabel("Web players")
-                    VideoSource.entries.forEach { source ->
-                        SourceRow(source.label, "Plays in the app", onClick = { onPick(source) })
-                    }
-                }
-                if (onPickTorrents != null) {
-                    SourceGroupLabel("Stream add-ons")
-                    addons.forEach { provider ->
-                        SourceRow(provider.name, provider.description?.takeIf { it.isNotBlank() } ?: "Torrents and links", onClick = { onPickTorrents(provider) })
-                    }
-                }
+            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                Text(
+                    text = if (Torrents.isSupported) {
+                        "None of your stream add-ons can play this title. Install one in Settings, under Stream add-ons."
+                    } else {
+                        "Streams aren't supported on this device yet."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Mocha.Subtext0,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.widthIn(max = 360.dp),
+                )
             }
         }
     }
@@ -443,30 +385,4 @@ internal fun MessageChip(text: String, modifier: Modifier = Modifier) {
             .background(MaterialTheme.colorScheme.inverseSurface)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     )
-}
-
-private val SourceListWidth = 460.dp
-
-@Composable
-private fun SourceGroupLabel(text: String) {
-    Text(
-        text = text.uppercase(),
-        style = MaterialTheme.typography.labelMedium,
-        color = Mocha.Subtext0,
-        modifier = Modifier.widthIn(max = SourceListWidth).fillMaxWidth().padding(start = 4.dp, top = 12.dp, bottom = 2.dp),
-    )
-}
-
-/** One source in the menu: a glass row with its name, a line about it, and a play mark. */
-@Composable
-private fun SourceRow(name: String, detail: String, onClick: () -> Unit) {
-    GlassCard(onClick = onClick, modifier = Modifier.widthIn(max = SourceListWidth).fillMaxWidth()) {
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(detail, style = MaterialTheme.typography.labelSmall, color = Mocha.Subtext0, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Icon(PlayerIcons.Play, contentDescription = null, tint = Mocha.Subtext0, modifier = Modifier.size(18.dp))
-        }
-    }
 }

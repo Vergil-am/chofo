@@ -70,8 +70,10 @@ data class WatchUiState(
     val remembered: RememberedStream? = null,
     /** Looking up a fresh link for [remembered] from its add-on. */
     val isResuming: Boolean = false,
-    /** Still finding out whether there's a stream to start straight away. */
+    /** Still working out what to open: the last stream, or which add-on's list. */
     val isCheckingRemembered: Boolean = false,
+    /** No installed add-on can list streams for this title (or torrents don't work here). */
+    val noStreamSources: Boolean = false,
 )
 
 /**
@@ -94,7 +96,7 @@ class WatchViewModel(
     private val resumeLastStream: Boolean = false,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(WatchUiState(isCheckingRemembered = resumeLastStream && watchHistory != null))
+    private val _state = MutableStateFlow(WatchUiState(isCheckingRemembered = true))
     val state: StateFlow<WatchUiState> = _state.asStateFlow()
 
     /** Whether torrents can be downloaded on this platform. */
@@ -120,9 +122,11 @@ class WatchViewModel(
             _state.update { it.copy(remembered = remembered, isCheckingRemembered = stillWaiting) }
             when {
                 !stillWaiting -> Unit
-                remembered != null -> resumeRemembered()
+                resumeLastStream && remembered != null -> resumeRemembered()
                 // A new episode: carry on with what the show was last watched with.
-                else -> continueWithPreviousStream(key)
+                resumeLastStream -> continueWithPreviousStream(key)
+                // From the title's page: straight to the stream list, of the add-on used last time.
+                else -> openDefaultTorrents(remembered?.addonId)
             }
         }
         scope.launch {
@@ -217,7 +221,7 @@ class WatchViewModel(
         }
         val addon = previous?.addonId?.let { id -> addonRepository.addons.first().firstOrNull { it.id == id && it.canServe(target) } }
         if (previous == null || addon == null || (previous.kind == RememberedStream.Kind.Torrent && !Torrents.isSupported)) {
-            _state.update { it.copy(isCheckingRemembered = false) }
+            openDefaultTorrents(previous?.addonId)
             return
         }
         val streams = runForUiState { torrentio.streams(target, addon) }
@@ -254,22 +258,34 @@ class WatchViewModel(
         }
     }
 
-    /** Back to the torrent list from a playing torrent. */
-    fun backToTorrents() {
-        val state = _state.value
-        if (state.provider != null) {
-            _state.update { it.copy(step = WatchStep.Torrents) }
+    /**
+     * The stream list of [preferredAddonId] when it can serve this title, else of the first add-on
+     * that can. With none (or no torrent support here), says so instead.
+     */
+    private suspend fun openDefaultTorrents(preferredAddonId: String?) {
+        val usable = addonRepository.addons.first().filter { it.canServe(target) }
+        val addon = usable.firstOrNull { it.id == preferredAddonId } ?: usable.firstOrNull()
+        if (addon == null || !Torrents.isSupported) {
+            _state.update { it.copy(step = WatchStep.SourceMenu, isCheckingRemembered = false, isResuming = false, noStreamSources = true) }
             return
         }
-        // Resumed without opening a list: show the list of the add-on it came from, else the menu.
-        val addon = state.addons.firstOrNull { it.id == state.remembered?.addonId }
-        if (addon != null) openTorrents(addon) else backToSourceMenu()
+        _state.update { it.copy(step = WatchStep.Torrents, provider = addon, isCheckingRemembered = false, isResuming = false) }
+        loadTorrents()
     }
 
-    fun backToSourceMenu() {
+    /** Back to the stream list ("Change source"), opening one if none was yet. */
+    fun backToTorrents() {
         resumeJob?.cancel()
-        _state.update { it.copy(step = WatchStep.SourceMenu, isResuming = false, isCheckingRemembered = false) }
+        val state = _state.value
+        if (state.provider != null) {
+            _state.update { it.copy(step = WatchStep.Torrents, isResuming = false, isCheckingRemembered = false) }
+            return
+        }
+        scope.launch { openDefaultTorrents(state.remembered?.addonId) }
     }
+
+    /** There's no source menu any more: "Change source" goes to the stream list. */
+    fun backToSourceMenu() = backToTorrents()
 
     /** Opens the download dialog for [option] and looks for subtitles to save with it. */
     fun chooseDownload(option: TorrentOption) {

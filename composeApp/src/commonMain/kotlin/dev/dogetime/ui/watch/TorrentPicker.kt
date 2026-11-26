@@ -1,5 +1,9 @@
 package dev.dogetime.ui.watch
 
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material3.ButtonDefaults
+import dev.dogetime.domain.RememberedStream
 import dev.dogetime.Mocha
 import androidx.compose.ui.text.font.FontWeight
 import dev.dogetime.ui.components.GlassIconButton
@@ -83,20 +87,24 @@ internal fun TorrentPicker(
     onSelectProvider: (StreamAddon) -> Unit,
     onRetry: () -> Unit,
     onBack: () -> Unit,
-    onChangeSource: () -> Unit,
     onPick: (TorrentOption) -> Unit,
     onChooseDownload: ((TorrentOption) -> Unit)?,
     onDismissDownload: () -> Unit,
     onDownload: (TorrentOption, Subtitle?) -> Unit,
     modifier: Modifier = Modifier,
+    /** The stream last played for this title, offered at the top to carry on with. */
+    remembered: RememberedStream? = null,
+    isResuming: Boolean = false,
+    onResume: () -> Unit = {},
 ) {
     var group by remember(provider) { mutableStateOf(QualityGroup.FullHd) }
     val providerName = provider?.name ?: "this add-on"
 
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (backdropUrl != null) BlurredBackdrop(backdropUrl, Modifier.fillMaxSize())
-        WatchPage(title = title, pageShown = false, onBack = onBack, onChangeSource = onChangeSource) {
+        WatchPage(title = title, pageShown = false, onBack = onBack) {
             Column(Modifier.fillMaxSize()) {
+                if (remembered != null) ContinueRow(remembered, isResuming, onResume)
                 ProviderChips(addons = addons, selected = provider, onSelect = onSelectProvider)
                 when (val state = torrents) {
                     UiState.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -259,6 +267,37 @@ private fun Message(text: String, onRetry: () -> Unit) {
         Text(text, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 360.dp))
         Button(onClick = onRetry) {
             Text("Try again")
+        }
+    }
+}
+
+/** "Continue with the same stream": the one last played for this title, here or on another device. */
+@Composable
+private fun ContinueRow(remembered: RememberedStream, isResuming: Boolean, onResume: () -> Unit) {
+    Box(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 4.dp), contentAlignment = Alignment.Center) {
+        Button(
+            onClick = onResume,
+            enabled = !isResuming,
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Mocha.Text, contentColor = Mocha.Crust),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth(),
+        ) {
+            if (isResuming) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Mocha.Crust)
+            } else {
+                Icon(PlayerIcons.Play, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Continue with the same stream", style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    Text(
+                        text = listOfNotNull(remembered.label?.takeIf { it.isNotBlank() }, remembered.fileName).joinToString(" · "),
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
     }
 }

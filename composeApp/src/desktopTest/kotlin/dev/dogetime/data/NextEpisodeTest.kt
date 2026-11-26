@@ -191,3 +191,70 @@ class ContinueWatchingTest {
         assertEquals(WatchStatus.Completed, watchlist.observeStatus(MediaType.Movie, 550).first())
     }
 }
+
+/** The show page's play button: continue, next, or rewatch, from the watch history. */
+class DetailsPlayButtonTest {
+    private val tmdb = FakeTmdb()
+    private val db = Room.inMemoryDatabaseBuilder<AppDatabase>().setDriver(BundledSQLiteDriver()).setQueryCoroutineContext(Dispatchers.IO).build()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val history = WatchHistoryRepository(db.watchHistoryDao(), scope)
+    private val finder = NextEpisodeFinder(tmdb.media, today = { "2026-11-26" })
+    private val show = MediaItem(1399, MediaType.Tv, "Game of Thrones", "", null, null, 8.5, "2011")
+    private val hour = 3_600_000L
+
+    @AfterTest
+    fun tearDown() = runBlocking {
+        scope.coroutineContext.job.cancelAndJoin()
+        delay(200)
+        db.close()
+    }
+
+    private suspend fun button(): dev.dogetime.ui.details.PlayButton? {
+        val vm = dev.dogetime.ui.details.DetailsViewModel(tmdb.media, FavoritesRepository(db.favoriteDao()), MediaType.Tv, 1399, history, nextEpisodes = finder)
+        try {
+            // Give the history read and the lookup a moment, then take what's there.
+            delay(800)
+            return vm.playButton.value
+        } finally {
+            vm.clear()
+        }
+    }
+
+    private suspend fun watched(season: Int, episode: Int, fraction: Double) {
+        history.saveProgress(WatchTarget.Episode(1399, season, episode), show, (hour * fraction).toLong(), hour)
+        delay(5) // distinct watch times
+    }
+
+    @Test
+    fun nothingWatchedLeavesItToTheScreen() = runBlocking {
+        assertNull(button())
+    }
+
+    @Test
+    fun anUnfinishedEpisodeIsContinued() = runBlocking {
+        watched(1, 2, 0.5)
+        assertEquals(dev.dogetime.ui.details.PlayButton(1, 2, dev.dogetime.ui.details.PlayButton.Kind.Continue), button())
+    }
+
+    @Test
+    fun aFinishedEpisodeOffersTheNextOne() = runBlocking {
+        watched(1, 2, 0.95)
+        assertEquals(dev.dogetime.ui.details.PlayButton(1, 3, dev.dogetime.ui.details.PlayButton.Kind.Next), button())
+        // The season's last one: the next season's first.
+        watched(1, 3, 0.92)
+        assertEquals(dev.dogetime.ui.details.PlayButton(2, 1, dev.dogetime.ui.details.PlayButton.Kind.Next), button())
+    }
+
+    @Test
+    fun theLatestWatchedDecidesNotTheEarliestUnfinished() = runBlocking {
+        watched(1, 1, 0.3) // left early, long ago
+        watched(2, 1, 0.97)
+        assertEquals(dev.dogetime.ui.details.PlayButton(2, 2, dev.dogetime.ui.details.PlayButton.Kind.Next), button())
+    }
+
+    @Test
+    fun caughtUpOffersARewatch() = runBlocking {
+        watched(2, 2, 0.95) // S2E3 hasn't aired
+        assertEquals(dev.dogetime.ui.details.PlayButton(1, 1, dev.dogetime.ui.details.PlayButton.Kind.Rewatch), button())
+    }
+}

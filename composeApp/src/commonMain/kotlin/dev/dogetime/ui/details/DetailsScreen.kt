@@ -1,5 +1,6 @@
 package dev.dogetime.ui.details
 
+import dev.dogetime.data.NextEpisodeFinder
 import dev.dogetime.ui.components.ChoicePill
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.BorderStroke
@@ -125,15 +126,17 @@ fun DetailsScreen(
     repository: MediaRepository,
     favorites: FavoritesRepository,
     onBack: () -> Unit,
-    onWatch: (target: WatchTarget, title: String, backdropUrl: String?, mediaItem: MediaItem?) -> Unit,
+    /** [resume]: play straight away, the way Continue Watching does, instead of listing streams. */
+    onWatch: (target: WatchTarget, title: String, backdropUrl: String?, mediaItem: MediaItem?, resume: Boolean) -> Unit,
     onOpen: (MediaItem) -> Unit,
     modifier: Modifier = Modifier,
     watchHistory: WatchHistoryRepository? = null,
     initialItem: MediaItem? = null,
     watchlist: WatchlistRepository? = null,
+    nextEpisodes: NextEpisodeFinder? = null,
 ) {
     // Keyed by type and id, so opening a different title gets a fresh ViewModel.
-    val viewModel = remember(type, id) { DetailsViewModel(repository, favorites, type, id, watchHistory, watchlist) }
+    val viewModel = remember(type, id) { DetailsViewModel(repository, favorites, type, id, watchHistory, watchlist, nextEpisodes) }
     DisposableEffect(viewModel) {
         onDispose { viewModel.clear() }
     }
@@ -142,6 +145,7 @@ fun DetailsScreen(
     val isFavorite by viewModel.isFavorite.collectAsState()
     val episodeProgress by viewModel.episodeProgress.collectAsState()
     val watchStatus by viewModel.watchStatus.collectAsState()
+    val playButton by viewModel.playButton.collectAsState()
 
     val detailsData = (state as? UiState.Success)?.data ?: initialItem?.let {
         MediaDetails(
@@ -169,11 +173,17 @@ fun DetailsScreen(
                 onSeasonSelected = viewModel::selectSeason,
                 // The watch screen shows the title's backdrop while the video loads.
                 onWatch = { target, title ->
+                    // The episode to continue, or the next one after a finished episode, plays at once.
+                    val resume = playButton?.let { button ->
+                        button.kind == PlayButton.Kind.Continue || button.kind == PlayButton.Kind.Next
+                    } == true && target is WatchTarget.Episode &&
+                        target.season == playButton?.season && target.episode == playButton?.episode
                     onWatch(
                         target.withMetadata(imdbId = detailsData.imdbId, kitsuId = detailsData.kitsuId),
                         title,
                         detailsData.item.backdropUrl,
                         detailsData.item,
+                        resume,
                     )
                 },
                 isFavorite = isFavorite,
@@ -181,6 +191,7 @@ fun DetailsScreen(
                 watchlist = if (watchlist != null && state is UiState.Success) {
                     WatchlistControl(watchStatus, viewModel::setWatchStatus)
                 } else null,
+                playButton = playButton,
                 onOpen = onOpen,
                 isLoading = state is UiState.Loading,
             )
@@ -303,6 +314,7 @@ private fun DetailsContent(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     watchlist: WatchlistControl?,
+    playButton: PlayButton?,
     onOpen: (MediaItem) -> Unit,
     isLoading: Boolean = false,
 ) {
@@ -313,10 +325,10 @@ private fun DetailsContent(
         val heroHeight = if (isMediumOrWider) maxHeight else maxHeight * 0.7f
 
         if (wide && details.seasons.isNotEmpty()) {
-            WideDetails(details, episodes, episodeProgress, onSeasonSelected, onWatch, isFavorite, onToggleFavorite, watchlist, onOpen, heroHeight)
+            WideDetails(details, episodes, episodeProgress, onSeasonSelected, onWatch, isFavorite, onToggleFavorite, watchlist, playButton, onOpen, heroHeight)
         } else {
             LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                detailsSection(details, onWatch, isFavorite, onToggleFavorite, watchlist, heroHeight = heroHeight, includeOverviewInHero = isMediumOrWider, episodeProgress = episodeProgress)
+                detailsSection(details, onWatch, isFavorite, onToggleFavorite, watchlist, playButton = playButton, heroHeight = heroHeight, includeOverviewInHero = isMediumOrWider, episodeProgress = episodeProgress)
                 if (isLoading) {
                     item {
                         Box(
@@ -367,6 +379,7 @@ private fun WideDetails(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     watchlist: WatchlistControl?,
+    playButton: PlayButton?,
     onOpen: (MediaItem) -> Unit,
     heroHeight: Dp,
 ) {
@@ -413,6 +426,7 @@ private fun WideDetails(
                     isFavorite = isFavorite,
                     onToggleFavorite = onToggleFavorite,
                     watchlist = watchlist,
+                    playButton = playButton,
                     drawBackdrop = false,
                     onHeroHeightChanged = { heroContentHeightPx = it },
                     heroHeight = heroHeight,
@@ -480,6 +494,7 @@ private fun LazyListScope.detailsSection(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     watchlist: WatchlistControl?,
+    playButton: PlayButton? = null,
     drawBackdrop: Boolean = true,
     onHeroHeightChanged: (Int) -> Unit = {},
     heroHeight: Dp = 400.dp,
@@ -582,17 +597,19 @@ private fun LazyListScope.detailsSection(
                     } else if (details.seasons.isNotEmpty()) {
                         val downloadedEpisodes = LocalDownloadedEpisodes.current
                         val downloadedForShow = downloadedEpisodes.filter { it.first == media.id }
-                        val targetEp = if (downloadedForShow.isNotEmpty()) {
-                            downloadedForShow.map { it.second }.minWithOrNull(compareBy({ it.first }, { it.second })) ?: (1 to 1)
-                        } else {
-                            val inProgress = episodeProgress.entries
-                                .filter { it.value > 0.05f && it.value < FINISHED_FRACTION }
-                                .minByOrNull { it.key.first * 1000 + it.key.second }
-                                ?.key
-                            inProgress ?: (1 to 1)
-                        }
+                        // Watch history decides first: the episode in progress, or the next one.
+                        // Without any, the earliest downloaded episode, else the first.
+                        val firstSeason = details.seasons.map { it.number }.filter { it > 0 }.minOrNull() ?: 1
+                        val targetEp = playButton?.let { it.season to it.episode }
+                            ?: downloadedForShow.map { it.second }.minWithOrNull(compareBy({ it.first }, { it.second }))
+                            ?: (firstSeason to 1)
                         val isDownloaded = (media.id to targetEp) in downloadedEpisodes
                         val epLabel = "S${targetEp.first}E${targetEp.second}"
+                        val verb = when (playButton?.kind) {
+                            PlayButton.Kind.Continue -> "Continue"
+                            PlayButton.Kind.Rewatch -> "Rewatch"
+                            else -> "Watch"
+                        }
                         val label = "${media.title} $epLabel"
                         Button(
                             onClick = { onWatch(WatchTarget.Episode(media.id, targetEp.first, targetEp.second), label) },
@@ -609,8 +626,9 @@ private fun LazyListScope.detailsSection(
                             Icon(if (isDownloaded) PlayerIcons.Download else PlayIcon, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                if (isDownloaded) "Watch Offline ($epLabel)" else "Watch $epLabel",
+                                if (isDownloaded) "$verb Offline ($epLabel)" else "$verb $epLabel",
                                 fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
                             )
                         }
                     }

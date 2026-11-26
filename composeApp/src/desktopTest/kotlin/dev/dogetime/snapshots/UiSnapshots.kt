@@ -175,10 +175,10 @@ class UiSnapshots {
                 }
             }
             shoot("details-tv", size) {
-                DetailsScreen(MediaType.Tv, 95396, media, favorites, onBack = {}, onWatch = { _, _, _, _ -> }, onOpen = {}, watchHistory = history, watchlist = watchlist)
+                DetailsScreen(MediaType.Tv, 95396, media, favorites, onBack = {}, onWatch = { _, _, _, _, _ -> }, onOpen = {}, watchHistory = history, watchlist = watchlist)
             }
             shoot("details-movie", size) {
-                DetailsScreen(MediaType.Movie, 693134, media, favorites, onBack = {}, onWatch = { _, _, _, _ -> }, onOpen = {}, watchHistory = history, watchlist = watchlist)
+                DetailsScreen(MediaType.Movie, 693134, media, favorites, onBack = {}, onWatch = { _, _, _, _, _ -> }, onOpen = {}, watchHistory = history, watchlist = watchlist)
             }
             for (section in LibrarySection.entries) {
                 library.showSection(section)

@@ -20,7 +20,6 @@ import dev.dogetime.data.local.AppDatabase
 import dev.dogetime.domain.MediaItem
 import dev.dogetime.domain.MediaType
 import dev.dogetime.domain.RememberedStream
-import dev.dogetime.domain.VideoSource
 import dev.dogetime.domain.WatchTarget
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -43,6 +42,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 /** Continue Watching goes straight to the stream last played, without the source menu. */
 class WatchResumeTest {
@@ -117,16 +117,39 @@ class WatchResumeTest {
         assertEquals(3, step.pick.episode)
         assertEquals(torrent, step.pick.remembered) // kept, so the next save remembers it again
 
-        // Opened from a title's page instead: the menu, with the stream offered first.
-        val fromDetails = withTimeout(5_000) { watch(resume = false).state.first { it.remembered != null } }
-        assertEquals(WatchStep.SourceMenu, fromDetails.step)
+        // Opened from a title's page instead: the stream list, with the stream offered first.
+        val fromDetails = watch(resume = false).settled()
+        assertEquals(WatchStep.Torrents, fromDetails.step)
         assertEquals(torrent, fromDetails.remembered)
     }
 
     @Test
-    fun aWebSourceOpensAgain() = runBlocking {
-        history.saveProgress(target, show, 600_000, 3_600_000, stream = RememberedStream.of(VideoSource.VidLink))
-        assertEquals(WatchStep.Source(VideoSource.VidLink), watch(resume = true).settled().step)
+    fun theStreamListOpensWithoutAMenu() = runBlocking {
+        addons.install("https://debrid.example/key=1/manifest.json")
+        // Nothing watched yet: the first add-on that serves the title.
+        val first = watch(resume = false).settled()
+        assertEquals(WatchStep.Torrents, first.step)
+        assertEquals(addons.addons.first().first { it.canServe(target) }.id, first.provider?.id)
+
+        // Watched before with the debrid add-on: its list opens.
+        history.saveProgress(target, show, 600_000, 3_600_000, stream = RememberedStream(RememberedStream.Kind.Direct, addonId = "org.example.debrid", url = "https://cdn.example/a.mkv"))
+        assertEquals("org.example.debrid", watch(resume = false).settled().provider?.id)
+    }
+
+    @Test
+    fun withNoAddOnsItSaysSo() = runBlocking {
+        addons.current().forEach { addons.remove(it.id) }
+        val state = watch(resume = false).settled()
+        assertEquals(WatchStep.SourceMenu, state.step)
+        assertTrue(state.noStreamSources)
+    }
+
+    @Test
+    fun aSavedWebPlayerFallsBackToTheStreamList() = runBlocking {
+        // Saved while web players were on: nothing to reopen, so the list shows.
+        history.saveProgress(target, show, 600_000, 3_600_000)
+        val state = watch(resume = true).settled()
+        assertEquals(WatchStep.Torrents, state.step)
     }
 
     @Test
@@ -173,10 +196,10 @@ class WatchResumeTest {
     }
 
     @Test
-    fun withoutARememberedStreamTheMenuShows() = runBlocking {
+    fun withoutARememberedStreamTheListShows() = runBlocking {
         history.saveProgress(target, show, 600_000, 3_600_000)
         val state = watch(resume = true).settled()
-        assertEquals(WatchStep.SourceMenu, state.step)
+        assertEquals(WatchStep.Torrents, state.step)
         assertEquals(null, state.remembered)
     }
 }

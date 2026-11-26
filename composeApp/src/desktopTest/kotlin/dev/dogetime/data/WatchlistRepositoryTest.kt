@@ -7,7 +7,6 @@ import dev.dogetime.domain.MediaItem
 import dev.dogetime.domain.MediaType
 import dev.dogetime.domain.RememberedStream
 import dev.dogetime.domain.TorrentOption
-import dev.dogetime.domain.VideoSource
 import dev.dogetime.domain.WatchStatus
 import dev.dogetime.domain.WatchTarget
 import kotlinx.coroutines.CoroutineScope
@@ -90,21 +89,20 @@ class RememberedStreamTest {
         )
         assertEquals(RememberedStream.Kind.Direct, direct.kind)
         assertEquals("Fight Club 4K", direct.fileName) // used to find the same file again
-        assertEquals(VideoSource.VidLink, RememberedStream.decode(RememberedStream.of(VideoSource.VidLink).encode())?.videoSource)
 
-        // What can't be opened again isn't offered.
-        assertNull(RememberedStream.decode("""{"kind":"web","source":"GoneSite"}"""))
+        // What can't be opened again isn't offered, including web players (switched off for now).
+        assertNull(RememberedStream.decode("""{"kind":"web","source":"VidSrc"}"""))
         assertNull(RememberedStream.decode("""{"kind":"torrent"}"""))
         assertNull(RememberedStream.decode("garbage"))
     }
 
     @Test
     fun progressKeepsTheStreamUntilAnotherIsPlayed() = runBlocking {
-        val first = RememberedStream.of(VideoSource.VidSrc)
+        val first = RememberedStream(RememberedStream.Kind.Torrent, magnet = "magnet:?xt=urn:btih:aaaa")
         history.saveProgress(WatchTarget.Movie(550), movie, 1_000, 8_000_000, stream = first)
         history.saveProgress(WatchTarget.Movie(550), movie, 2_000, 8_000_000) // e.g. the offline copy
         assertEquals(first, history.rememberedStream(MediaType.Movie, 550))
-        val second = RememberedStream.of(VideoSource.VidCore)
+        val second = RememberedStream(RememberedStream.Kind.Direct, url = "https://cdn.example/b.mkv")
         history.saveProgress(WatchTarget.Movie(550), movie, 3_000, 8_000_000, stream = second)
         assertEquals(second, history.rememberedStream(MediaType.Movie, 550))
     }
