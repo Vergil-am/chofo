@@ -1,5 +1,8 @@
 package dev.dogetime.ui.settings
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.HorizontalDivider
+import dev.dogetime.ui.components.ChoicePill
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -97,8 +100,9 @@ fun StreamAddonsSection(viewModel: StreamAddonsViewModel) {
             Text("No stream add-ons installed.", style = MaterialTheme.typography.bodyMedium)
         }
         addons.forEachIndexed { index, addon ->
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Column(Modifier.weight(1f)) {
+            if (index > 0) HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column {
                     Text(addon.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Text(
                         text = listOfNotNull(
@@ -111,10 +115,14 @@ fun StreamAddonsSection(viewModel: StreamAddonsViewModel) {
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (index > 0) TextButton(onClick = { viewModel.move(addon, -1) }) { Text("↑") }
-                if (index < addons.lastIndex) TextButton(onClick = { viewModel.move(addon, 1) }) { Text("↓") }
-                addon.configureUrl?.let { configure -> TextButton(onClick = { uriHandler.openUri(configure) }) { Text("Configure") } }
-                TextButton(onClick = { viewModel.remove(addon) }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                // Actions on their own line, so long names and narrow screens both fit.
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (index > 0) ChoicePill("↑ Up", selected = false, onClick = { viewModel.move(addon, -1) })
+                    if (index < addons.lastIndex) ChoicePill("↓ Down", selected = false, onClick = { viewModel.move(addon, 1) })
+                    addon.configureUrl?.let { configure -> ChoicePill("Configure", selected = false, onClick = { uriHandler.openUri(configure) }) }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { viewModel.remove(addon) }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                }
             }
         }
         TextButton(onClick = viewModel::restoreDefaults) { Text("Restore the built-in add-ons") }

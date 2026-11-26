@@ -1,5 +1,14 @@
 package dev.dogetime.ui.watch
 
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ButtonDefaults
+import dev.dogetime.Mocha
+import dev.dogetime.ui.player.PlayerIcons
+import dev.dogetime.ui.components.ChoicePill
+import dev.dogetime.ui.components.GlassCard
+import dev.dogetime.ui.components.GlassIconButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -191,63 +200,47 @@ private fun SourcePicker(
                     .verticalScroll(rememberScrollState())
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
             ) {
                 if (remembered != null) {
-                    Text("Continue with the same stream", style = MaterialTheme.typography.titleMedium)
+                    SourceGroupLabel("Continue")
                     Button(
                         onClick = onResume,
                         enabled = !isResuming,
-                        modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Mocha.Text, contentColor = Mocha.Crust),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                        modifier = Modifier.widthIn(max = SourceListWidth).fillMaxWidth(),
                     ) {
                         if (isResuming) {
-                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Mocha.Crust)
                         } else {
-                            Text(
-                                remembered.label?.takeIf { it.isNotBlank() } ?: "Last stream",
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Icon(PlayerIcons.Play, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    remembered.label?.takeIf { it.isNotBlank() } ?: "Last stream",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                remembered.fileName?.takeIf { remembered.kind != RememberedStream.Kind.Web }?.let {
+                                    Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
                         }
                     }
-                    remembered.fileName?.takeIf { remembered.kind != RememberedStream.Kind.Web }?.let {
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = 320.dp),
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
                 }
                 if (target.kitsuId == null) {
-                    Text("Choose a source", style = MaterialTheme.typography.titleMedium)
+                    SourceGroupLabel("Web players")
                     VideoSource.entries.forEach { source ->
-                        Button(
-                            onClick = { onPick(source) },
-                            modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth(),
-                        ) {
-                            Text(source.label)
-                        }
+                        SourceRow(source.label, "Plays in the app", onClick = { onPick(source) })
                     }
                 }
                 if (onPickTorrents != null) {
-                    if (target.kitsuId == null) {
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    Text(
-                        if (target.kitsuId != null) "Choose a stream add-on" else "Stream add-ons",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
+                    SourceGroupLabel("Stream add-ons")
                     addons.forEach { provider ->
-                        Button(
-                            onClick = { onPickTorrents(provider) },
-                            modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth(),
-                        ) {
-                            Text(provider.name)
-                        }
+                        SourceRow(provider.name, provider.description?.takeIf { it.isNotBlank() } ?: "Torrents and links", onClick = { onPickTorrents(provider) })
                     }
                 }
             }
@@ -363,23 +356,23 @@ internal fun WatchPage(
     content: @Composable () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = onBack) {
-                Text("← Back")
-            }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            GlassIconButton(icon = PlayerIcons.Back, contentDescription = "Back", onClick = onBack, size = 42.dp)
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
             onChangeSource?.let {
-                TextButton(onClick = it) {
-                    Text("Change source")
-                }
+                ChoicePill("Change source", selected = false, onClick = it)
             }
         }
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        )
         if (pageShown && ExternalPlayer.isSupported) {
             Text(
                 text = "Press play in the player below.",
@@ -450,4 +443,30 @@ internal fun MessageChip(text: String, modifier: Modifier = Modifier) {
             .background(MaterialTheme.colorScheme.inverseSurface)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     )
+}
+
+private val SourceListWidth = 460.dp
+
+@Composable
+private fun SourceGroupLabel(text: String) {
+    Text(
+        text = text.uppercase(),
+        style = MaterialTheme.typography.labelMedium,
+        color = Mocha.Subtext0,
+        modifier = Modifier.widthIn(max = SourceListWidth).fillMaxWidth().padding(start = 4.dp, top = 12.dp, bottom = 2.dp),
+    )
+}
+
+/** One source in the menu: a glass row with its name, a line about it, and a play mark. */
+@Composable
+private fun SourceRow(name: String, detail: String, onClick: () -> Unit) {
+    GlassCard(onClick = onClick, modifier = Modifier.widthIn(max = SourceListWidth).fillMaxWidth()) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(detail, style = MaterialTheme.typography.labelSmall, color = Mocha.Subtext0, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Icon(PlayerIcons.Play, contentDescription = null, tint = Mocha.Subtext0, modifier = Modifier.size(18.dp))
+        }
+    }
 }

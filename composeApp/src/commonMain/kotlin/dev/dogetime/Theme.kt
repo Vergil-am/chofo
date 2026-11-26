@@ -34,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 
 enum class AppTheme(
@@ -45,9 +46,9 @@ enum class AppTheme(
     Midnight(
         id = "midnight",
         displayName = "Chofo Midnight",
-        description = "Deep night black with glowing periwinkle accents",
+        description = "Near-black and quiet, with one periwinkle accent",
         previewColors = listOf(
-            Color(0xFF000807),
+            Color(0xFF07070A),
             Color(0xFFFBF9FF),
             Color(0xFF9395D3),
             Color(0xFFB3B7EE),
@@ -89,15 +90,16 @@ data class AppPalette(
 )
 
 val MidnightPalette = run {
-    val base = Color(0xFF000807)      // Main background from Coolors
-    val crust = Color(0xFF000504)     // Deepest black depth
-    val mantle = Color(0xFF040D0C)    // Slightly elevated dark tone
-    val surface0 = Color(0xFF0A1413)  // Card / surface base
-    val surface1 = Color(0xFF121E1C)  // Elevated surface
-    val surface2 = Color(0xFF1C2B29)  // Borders & subtle dividers
-    val overlay0 = Color(0xFF424558)  // Outline / separators
-    val subtext0 = Color(0xFFA2A3BB)  // Cool slate secondary text (#A2A3BB from Coolors)
-    val text = Color(0xFFFBF9FF)      // Ghost white primary text (#FBF9FF from Coolors)
+    // Neutral near-blacks: the artwork brings the colour, the UI stays out of its way.
+    val base = Color(0xFF07070A)      // Main background
+    val crust = Color(0xFF030305)     // Deepest black
+    val mantle = Color(0xFF0C0C10)    // Slightly raised
+    val surface0 = Color(0xFF15151A)  // Cards and fields
+    val surface1 = Color(0xFF1D1D24)  // Raised cards, selected chips
+    val surface2 = Color(0xFF2A2A33)  // Borders and dividers
+    val overlay0 = Color(0xFF4A4A56)  // Outlines
+    val subtext0 = Color(0xFFA0A0AE)  // Secondary text
+    val text = Color(0xFFF5F5F7)      // Primary text
     val mauve = Color(0xFFB3B7EE)     // Bright periwinkle primary accent (#B3B7EE from Coolors)
     val blue = Color(0xFF9395D3)      // Slate blue secondary accent (#9395D3 from Coolors)
     val lavender = Color(0xFFB3B7EE)
@@ -274,6 +276,7 @@ fun ChofoTheme(
     ) {
         MaterialTheme(
             colorScheme = palette.colorScheme,
+            typography = ChofoTypography,
             content = content,
         )
     }
@@ -384,4 +387,19 @@ fun ThemeSelectionDialog(
             }
         }
     }
+}
+
+/** Material's type scale with heavier, slightly tighter headings, like a streaming app's. */
+private val ChofoTypography: androidx.compose.material3.Typography = androidx.compose.material3.Typography().run {
+    fun androidx.compose.ui.text.TextStyle.heading(weight: FontWeight, tracking: Double) =
+        copy(fontWeight = weight, letterSpacing = tracking.sp)
+    copy(
+        displaySmall = displaySmall.heading(FontWeight.ExtraBold, -0.5),
+        headlineLarge = headlineLarge.heading(FontWeight.ExtraBold, -0.5),
+        headlineMedium = headlineMedium.heading(FontWeight.Bold, -0.4),
+        headlineSmall = headlineSmall.heading(FontWeight.Bold, -0.3),
+        titleLarge = titleLarge.heading(FontWeight.Bold, -0.2),
+        titleMedium = titleMedium.heading(FontWeight.SemiBold, 0.0),
+        labelLarge = labelLarge.heading(FontWeight.SemiBold, 0.1),
+    )
 }

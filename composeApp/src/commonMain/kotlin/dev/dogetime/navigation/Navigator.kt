@@ -20,12 +20,11 @@ sealed interface Destination {
     data object Browse : Destination
     @Serializable
     data object Search : Destination
+    /** Downloads (grouped by title), favorites and the watchlist. */
     @Serializable
-    data object Downloads : Destination
+    data object Library : Destination
     @Serializable
     data object Settings : Destination
-    @Serializable
-    data object Watchlist : Destination
     @Serializable
     data class Details(
         val type: MediaType,

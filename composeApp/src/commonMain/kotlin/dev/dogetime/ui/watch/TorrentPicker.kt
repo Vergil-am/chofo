@@ -1,5 +1,10 @@
 package dev.dogetime.ui.watch
 
+import dev.dogetime.Mocha
+import androidx.compose.ui.text.font.FontWeight
+import dev.dogetime.ui.components.GlassIconButton
+import dev.dogetime.ui.components.GlassCard
+import dev.dogetime.ui.components.ChoicePill
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -149,15 +154,11 @@ private fun ProviderChips(addons: List<StreamAddon>, selected: StreamAddon?, onS
     LazyRow(
         state = rowState,
         modifier = Modifier.fillMaxWidth().dragToScroll(rowState),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {
         items(addons, key = { it.id }) { provider ->
-            FilterChip(
-                selected = provider.id == selected?.id,
-                onClick = { onSelect(provider) },
-                label = { Text(provider.name) },
-            )
+            ChoicePill(provider.name, selected = provider.id == selected?.id, onClick = { onSelect(provider) })
         }
     }
 }
@@ -172,11 +173,7 @@ private fun QualityChips(selected: QualityGroup, onSelect: (QualityGroup) -> Uni
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {
         items(QualityGroup.entries) { group ->
-            FilterChip(
-                selected = group == selected,
-                onClick = { onSelect(group) },
-                label = { Text(group.label) },
-            )
+            ChoicePill(group.label, selected = group == selected, onClick = { onSelect(group) })
         }
     }
 }
@@ -187,16 +184,11 @@ private fun TorrentRow(
     onClick: () -> Unit,
     onDownloadClick: (() -> Unit)? = null,
 ) {
+    GlassCard(onClick = onClick, modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth()) {
     Row(
-        modifier = Modifier
-            .widthIn(max = 560.dp)
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
-            .clickable(onClick = onClick)
-            .padding(12.dp),
+        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Column(
             modifier = Modifier.weight(1f),
@@ -206,11 +198,12 @@ private fun TorrentRow(
                 Text(
                     text = option.quality,
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.Bold,
+                    color = Mocha.Crust,
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
-                        .background(MaterialTheme.colorScheme.primary)
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                        .background(if (option.group == QualityGroup.UltraHd) Mocha.Peach else Mocha.Text)
+                        .padding(horizontal = 7.dp, vertical = 2.dp),
                 )
                 Text(
                     text = listOfNotNull(
@@ -218,14 +211,17 @@ private fun TorrentRow(
                         option.seeders?.let { if (it == 1) "1 seeder" else "$it seeders" },
                         option.size?.takeIf { it.isNotBlank() },
                         option.site,
-                    ).joinToString(" · "),
+                    ).joinToString("  •  "),
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Mocha.Subtext0,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Text(
                 text = option.release,
                 style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -242,21 +238,14 @@ private fun TorrentRow(
         }
 
         if (onDownloadClick != null) {
-            IconButton(
+            GlassIconButton(
+                icon = PlayerIcons.Download,
+                contentDescription = "Download torrent with subtitles",
                 onClick = onDownloadClick,
-                colors = IconButtonDefaults.iconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f),
-                    contentColor = MaterialTheme.colorScheme.primary,
-                ),
-                modifier = Modifier.size(38.dp),
-            ) {
-                Icon(
-                    imageVector = PlayerIcons.Download,
-                    contentDescription = "Download torrent with subtitles",
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+                size = 40.dp,
+            )
         }
+    }
     }
 }
 

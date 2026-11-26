@@ -45,106 +45,18 @@ import dev.dogetime.domain.DownloadStatus
 import dev.dogetime.domain.WatchHistoryItem
 import dev.dogetime.ui.player.PlayerIcons
 
+/** One download with its progress and actions: play, pause or resume, cancel or delete. */
 @Composable
-fun DownloadsScreen(
-    viewModel: DownloadsViewModel,
-    onPlayDownload: (DownloadItem) -> Unit,
-    modifier: Modifier = Modifier,
-    bottomInset: Dp = 0.dp,
-) {
-    val loaded by viewModel.downloads.collectAsState()
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp)
-            .padding(bottom = bottomInset + 24.dp),
-    ) {
-        Spacer(Modifier.height(20.dp))
-
-        Text(
-            text = "Downloads",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        Text(
-            text = "Offline torrents and saved subtitles",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Spacer(Modifier.height(20.dp))
-
-        val downloads = loaded ?: return@Column
-        if (downloads.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.widthIn(max = 380.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = PlayerIcons.Download,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(32.dp),
-                        )
-                    }
-
-                    Text(
-                        text = "No Downloads Yet",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = "When choosing a torrent stream, tap the download icon to save it with your selected subtitles for offline viewing.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-                }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                items(downloads, key = { it.item.id }) { (item, watchProgress) ->
-                    DownloadCard(
-                        item = item,
-                        watchProgress = watchProgress,
-                        onPlay = { onPlayDownload(item) },
-                        onPause = { viewModel.pause(item) },
-                        onResume = { viewModel.resume(item) },
-                        onCancel = { viewModel.cancel(item) },
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DownloadCard(
+internal fun DownloadCard(
     item: DownloadItem,
     watchProgress: WatchHistoryItem? = null,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
     onCancel: () -> Unit,
+    /** Shown instead of the download's title, e.g. "Episode 3" inside its show. */
+    label: String? = null,
+    showThumbnail: Boolean = true,
 ) {
     Card(
         modifier = Modifier
@@ -166,7 +78,9 @@ private fun DownloadCard(
             ) {
                 // Thumbnail
                 val imageUrl = item.posterUrl ?: item.backdropUrl
-                if (imageUrl != null) {
+                if (!showThumbnail) {
+                    // Inside its show: the poster is the same for every episode.
+                } else if (imageUrl != null) {
                     AsyncImage(
                         model = imageUrl,
                         contentDescription = item.title,
@@ -195,7 +109,7 @@ private fun DownloadCard(
                 // Info
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = item.title,
+                        text = label ?: item.title,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -346,10 +260,9 @@ private fun DownloadCard(
                             )
                         }
 
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             val statusText = when {
                                 isFinished -> "${formatBytes(item.totalBytes)} · Watched"
@@ -367,10 +280,12 @@ private fun DownloadCard(
                                 color = statusColor,
                                 fontWeight = FontWeight.Medium,
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Under the status, so both buttons keep their size on narrow screens.
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                                 Button(
                                     onClick = onPlay,
                                     shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f),
                                 ) {
                                     Icon(
                                         imageVector = if (isFinished) PlayerIcons.Replay else PlayerIcons.Play,

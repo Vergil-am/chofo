@@ -1,5 +1,16 @@
 package dev.dogetime
 
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
@@ -78,9 +89,10 @@ import dev.dogetime.ui.components.LocalDownloadedMediaIds
 import dev.dogetime.ui.components.LocalNavAnimatedVisibilityScope
 import dev.dogetime.ui.components.LocalSharedTransitionScope
 import dev.dogetime.ui.details.DetailsScreen
-import dev.dogetime.ui.downloads.DownloadsScreen
+import dev.dogetime.ui.library.LibraryScreen
+import dev.dogetime.ui.library.LibrarySection
 import dev.dogetime.ui.home.HomeScreen
-import dev.dogetime.ui.downloads.DownloadsViewModel
+import dev.dogetime.ui.library.LibraryViewModel
 import dev.dogetime.ui.home.HomeViewModel
 import dev.dogetime.ui.settings.SettingsViewModel
 import dev.dogetime.core.rememberViewModel
@@ -149,15 +161,22 @@ private val SearchIcon = lineIcon("Search") {
     lineTo(20f, 20f)
 }
 
-private val DownloadsIcon = lineIcon("Downloads") {
-    // Tray with downward arrow
-    moveTo(12f, 4f)
-    lineTo(12f, 15f)
-    moveTo(8f, 11f)
-    lineTo(12f, 15f)
-    lineTo(16f, 11f)
-    moveTo(4f, 19f)
+private val LibraryIcon = lineIcon("Library") {
+    // A stack: a framed card with two shelves behind it.
+    moveTo(4f, 10f)
     horizontalLineTo(20f)
+    verticalLineTo(20f)
+    horizontalLineTo(4f)
+    close()
+    moveTo(6f, 7f)
+    horizontalLineTo(18f)
+    moveTo(8f, 4f)
+    horizontalLineTo(16f)
+    // A play mark on the card.
+    moveTo(10.5f, 12.8f)
+    lineTo(14.2f, 15f)
+    lineTo(10.5f, 17.2f)
+    close()
 }
 
 private val SettingsIcon = lineIcon("Settings") {
@@ -182,14 +201,13 @@ private val tabs = listOf(
     Tab(Destination.Home, "Home", HomeIcon),
     Tab(Destination.Browse, "Browse", BrowseIcon),
     Tab(Destination.Search, "Search", SearchIcon),
-    Tab(Destination.Downloads, "Downloads", DownloadsIcon),
+    Tab(Destination.Library, "Library", LibraryIcon),
     Tab(Destination.Settings, "Settings", SettingsIcon),
 )
 
 private val NavBarHeight = 64.dp
-private val NavBarWidth = 68.dp
+private val NavBarWidth = 84.dp
 private val NavBarMargin = 16.dp
-private val NavRailEndMargin = 32.dp
 private val NavBarShape = RoundedCornerShape(NavBarHeight / 2)
 private val NavRailShape = RoundedCornerShape(NavBarWidth / 2)
 
@@ -247,14 +265,14 @@ fun App() {
         val streamAddonsViewModel = remember { dev.dogetime.ui.settings.StreamAddonsViewModel(container.streamAddons) }
         val browseViewModel = remember { BrowseViewModel(container.repository) }
         val searchViewModel = remember { SearchViewModel(container.repository) }
-        val downloadsViewModel = remember { DownloadsViewModel(container.downloadManager, container.watchHistory) }
+        val libraryViewModel = remember { LibraryViewModel(container.downloadManager, container.watchHistory, container.favorites, container.watchlist) }
         val settingsViewModel = remember { SettingsViewModel(container.updateChecker) }
         DisposableEffect(Unit) {
             onDispose {
                 homeViewModel.clear()
                 browseViewModel.clear()
                 searchViewModel.clear()
-                downloadsViewModel.clear()
+                libraryViewModel.clear()
                 settingsViewModel.clear()
                 accountViewModel.clear()
                 streamAddonsViewModel.clear()
@@ -291,12 +309,17 @@ fun App() {
         val hazeState = rememberHazeState()
 
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            val isWide = maxWidth > 839.dp
-            val startInset = if (isWide && showTabs) NavBarMargin + NavBarWidth + NavRailEndMargin else 0.dp
+            // Desktop and landscape: a side rail instead of the bottom bar.
+            val isWide = maxWidth > 839.dp || maxWidth > maxHeight
+            val isShort = maxHeight < 520.dp
+            val railInset = WindowInsets.safeDrawing.only(WindowInsetsSides.Start).asPaddingValues().calculateStartPadding(LocalLayoutDirection.current)
+            val startInset = if (isWide && showTabs) railInset + NavBarWidth else 0.dp
 
             Scaffold { innerPadding ->
                 val bottomInset = if (isWide || !showTabs) 0.dp else innerPadding.calculateBottomPadding() + NavBarHeight + NavBarMargin * 2
                 fun screenModifier(dest: Destination): Modifier = when {
+                    // Home's hero runs under the status bar and the transparent rail; Home insets its own content.
+                    dest == Destination.Home -> Modifier
                     dest !is Destination.Details && dest !is Destination.Watch && dest !is Destination.OfflineWatch -> Modifier
                         .padding(top = innerPadding.calculateTopPadding())
                         .padding(start = startInset)
@@ -333,11 +356,15 @@ fun App() {
                                             modifier = destModifier,
                                             bottomInset = bottomInset,
                                             isWide = isWide,
+                                            startInset = startInset,
                                             onNavigateToBrowse = { type, category ->
                                                 browseViewModel.selectFilter(type, category)
                                                 navigator.selectTab(Destination.Browse)
                                             },
-                                            onOpenWatchlist = { navigator.open(Destination.Watchlist) },
+                                            onOpenWatchlist = {
+                                                libraryViewModel.showSection(LibrarySection.Watchlist)
+                                                navigator.selectTab(Destination.Library)
+                                            },
                                             onContinue = { history ->
                                                 if (offlineLookup?.isActive != true) {
                                                     offlineLookup = appUiScope.launch {
@@ -361,13 +388,6 @@ fun App() {
                                                 },
                                             ),
                                         )
-                                        Destination.Watchlist -> dev.dogetime.ui.watchlist.WatchlistScreen(
-                                            watchlist = container.watchlist,
-                                            onOpen = openDetails,
-                                            onBack = { navigator.back() },
-                                            modifier = destModifier,
-                                            bottomInset = bottomInset,
-                                        )
                                         Destination.Browse -> BrowseScreen(
                                             viewModel = browseViewModel,
                                             onOpen = openDetails,
@@ -380,8 +400,9 @@ fun App() {
                                             modifier = destModifier,
                                             bottomInset = bottomInset,
                                         )
-                                        Destination.Downloads -> DownloadsScreen(
-                                            viewModel = downloadsViewModel,
+                                        Destination.Library -> LibraryScreen(
+                                            viewModel = libraryViewModel,
+                                            onOpen = openDetails,
                                             onPlayDownload = { item ->
                                                 navigator.open(Destination.OfflineWatch(item))
                                             },
@@ -469,9 +490,11 @@ fun App() {
                                 onSelect = navigator::selectTab,
                                 hazeState = hazeState,
                                 isVertical = true,
+                                // Phones in landscape are short: tighter tabs so all five fit.
+                                compact = isShort,
                                 modifier = Modifier
                                     .align(Alignment.CenterStart)
-                                    .padding(start = NavBarMargin),
+                                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical)),
                             )
                         } else {
                             FloatingNavBar(
@@ -503,19 +526,24 @@ fun App() {
 
 @OptIn(ExperimentalHazeApi::class)
 @Composable
-private fun FloatingNavBar(
+internal fun FloatingNavBar(
     root: Destination,
     onSelect: (Destination) -> Unit,
     hazeState: HazeState,
     isVertical: Boolean = false,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     if (isVertical) {
+        // A plain rail: the screen's full height, no background of its own.
         Column(
             modifier = modifier
+                .fillMaxHeight()
                 .width(NavBarWidth)
-                .padding(6.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+                // Still scrolls if even the compact tabs don't fit (e.g. split screen).
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 4.dp, vertical = if (compact) 4.dp else 12.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 6.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             tabs.forEach { tab ->
@@ -524,16 +552,22 @@ private fun FloatingNavBar(
                     selected = root == tab.destination,
                     onSelect = { onSelect(tab.destination) },
                     isVertical = true,
+                    compact = compact,
                 )
             }
         }
     } else {
+        // As wide as the screen allows (up to a phablet's width), shared evenly by the tabs, so
+        // all five fit on narrow phones.
         Row(
             modifier = modifier
+                .padding(horizontal = 12.dp)
+                .widthIn(max = 460.dp)
+                .fillMaxWidth()
                 .height(NavBarHeight)
                 .hazeGlass(input = HazeInput.Sources(hazeState), style = rememberNavBarGlass())
                 .padding(6.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             tabs.forEach { tab ->
@@ -542,6 +576,7 @@ private fun FloatingNavBar(
                     selected = root == tab.destination,
                     onSelect = { onSelect(tab.destination) },
                     isVertical = false,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
@@ -554,6 +589,8 @@ private fun NavBarTabItem(
     selected: Boolean,
     onSelect: () -> Unit,
     isVertical: Boolean,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val activeTheme = LocalActiveTheme.current
     val interactionSource = remember { MutableInteractionSource() }
@@ -598,9 +635,9 @@ private fun NavBarTabItem(
                 indication = null,
                 onClick = onSelect,
             )
-            .padding(vertical = 14.dp, horizontal = 4.dp)
+            .padding(vertical = if (compact) 6.dp else 12.dp, horizontal = 2.dp)
     } else {
-        Modifier
+        modifier
             .fillMaxHeight()
             .clip(shape)
             .background(pillColor)
@@ -610,7 +647,7 @@ private fun NavBarTabItem(
                 indication = null,
                 onClick = onSelect,
             )
-            .padding(horizontal = 14.dp)
+            .padding(horizontal = 2.dp)
     }
 
     Column(
@@ -626,6 +663,8 @@ private fun NavBarTabItem(
             text = tab.label,
             style = MaterialTheme.typography.labelSmall,
             color = iconColor,
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }

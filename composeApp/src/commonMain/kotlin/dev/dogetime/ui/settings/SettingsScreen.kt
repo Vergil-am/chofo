@@ -569,7 +569,7 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            Column {
+                            Column(Modifier.weight(1f).padding(end = 12.dp)) {
                                 Text(
                                     text = "Current Version: v${AppConfig.APP_VERSION}",
                                     style = MaterialTheme.typography.titleSmall,
@@ -629,6 +629,7 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Row(
+                                modifier = Modifier.weight(1f).padding(end = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {

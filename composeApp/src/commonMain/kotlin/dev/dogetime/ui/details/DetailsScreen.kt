@@ -1,5 +1,10 @@
 package dev.dogetime.ui.details
 
+import dev.dogetime.ui.components.ChoicePill
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.BorderStroke
+import dev.dogetime.ui.components.GlassIconButton
+import dev.dogetime.ui.components.TitleLogo
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -500,124 +505,69 @@ private fun LazyListScope.detailsSection(
                     .statusBarsPadding()
                     .padding(bottom = 16.dp),
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    Box {
-                        MediaPoster(
-                            url = media.posterUrl,
-                            title = media.title,
-                            sharedKey = "poster-${media.type}-${media.id}",
-                            modifier = Modifier
-                                .width(130.dp)
-                                .aspectRatio(2f / 3f)
-                                .shadow(12.dp, RoundedCornerShape(12.dp)),
-                        )
-                        if (media.id in LocalDownloadedMediaIds.current) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopStart)
-                                    .padding(6.dp)
-                                    .background(Mocha.Crust.copy(alpha = 0.85f), RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 6.dp, vertical = 3.dp),
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    Icon(
-                                        PlayerIcons.Download,
-                                        contentDescription = "Downloaded",
-                                        tint = Mocha.Green,
-                                        modifier = Modifier.size(11.dp),
-                                    )
-                                    Text(
-                                        text = "Downloaded",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
-                                        color = Mocha.Green,
-                                    )
-                                }
-                            }
-                        }
+                // Logo (or title), then one line of facts. The artwork above does the rest.
+                Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 18.dp)) {
+                    TitleLogo(
+                        logoUrl = details.logoUrl,
+                        title = media.title,
+                        showTextFallback = true,
+                        maxWidth = 380.dp,
+                        maxHeight = 120.dp,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    val facts = buildList {
+                        media.year?.let(::add)
+                        details.runtime?.let(::add)
+                        if (media.rating > 0) add("★ ${oneDecimal(media.rating)}")
+                        details.seasonCount?.let { add(if (it == 1) "1 season" else "$it seasons") }
+                        details.status?.takeIf { it != "Released" }?.let(::add)
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        // Logo image or text title.
-                        if (details.logoUrl != null) {
-                            AsyncImage(
-                                model = details.logoUrl,
-                                contentDescription = media.title,
-                                contentScale = ContentScale.FillWidth,
-                                modifier = Modifier
-                                    .fillMaxWidth(0.85f)
-                                    .padding(bottom = 4.dp),
-                            )
-                        } else {
-                            Text(
-                                text = media.title,
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-
-                        val meta = listOfNotNull(media.year, details.runtime, details.status).joinToString(" · ")
-                        if (meta.isNotEmpty()) {
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = meta,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-
-                        // Rating ring instead of text.
-                        if (media.rating > 0) {
-                            Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (media.id in LocalDownloadedMediaIds.current) {
                             Row(
+                                modifier = Modifier
+                                    .padding(end = 10.dp)
+                                    .background(Mocha.Green.copy(alpha = 0.18f), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 6.dp, vertical = 3.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                RatingRing(rating = media.rating, size = 44.dp, strokeWidth = 3.5.dp)
-                                Column {
-                                    Text(
-                                        text = "${oneDecimal(media.rating)} / 10",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                    Text(
-                                        text = "${details.voteCount} votes",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
+                                Icon(PlayerIcons.Download, contentDescription = "Downloaded", tint = Mocha.Green, modifier = Modifier.size(11.dp))
+                                Text("Downloaded", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Mocha.Green)
                             }
                         }
-
-                        details.tagline?.let { tagline ->
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                text = tagline,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontStyle = FontStyle.Italic,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        Text(
+                            text = facts.joinToString("  •  "),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Mocha.Text.copy(alpha = 0.85f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (details.genres.isNotEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = details.genres.joinToString("  ·  "),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Mocha.Subtext0,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
 
-                // Action buttons — pill-shaped.
-                Row(
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                // Action buttons. On phones the main one gets its own full-width row, so long labels
+                // ("Watch Offline (S2E3)", "✓ Plan to watch") never push the others off screen.
+                BoxWithConstraints(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 20.dp)) {
+                    val narrow = maxWidth < 560.dp
+                    val primaryButton: @Composable (Modifier) -> Unit = { buttonModifier ->
                     if (media.type == MediaType.Movie || (media.type == MediaType.Anime && details.seasons.isEmpty())) {
                         val isDownloaded = media.id in LocalDownloadedMediaIds.current
                         Button(
                             onClick = { onWatch(WatchTarget.Movie(media.id, kitsuId = details.kitsuId), media.title) },
                             shape = RoundedCornerShape(50),
                             contentPadding = PaddingValues(horizontal = 28.dp, vertical = 12.dp),
+                            modifier = buttonModifier,
                             colors = if (isDownloaded) {
                                 ButtonDefaults.buttonColors(
                                     containerColor = Mocha.Green,
@@ -648,6 +598,7 @@ private fun LazyListScope.detailsSection(
                             onClick = { onWatch(WatchTarget.Episode(media.id, targetEp.first, targetEp.second), label) },
                             shape = RoundedCornerShape(50),
                             contentPadding = PaddingValues(horizontal = 28.dp, vertical = 12.dp),
+                            modifier = buttonModifier,
                             colors = if (isDownloaded) {
                                 ButtonDefaults.buttonColors(
                                     containerColor = Mocha.Green,
@@ -663,56 +614,43 @@ private fun LazyListScope.detailsSection(
                             )
                         }
                     }
-                    // Heart icon button — circular.
-                    IconButton(
-                        onClick = onToggleFavorite,
-                        colors = IconButtonDefaults.iconButtonColors(
-                            containerColor = Mocha.Surface0.copy(alpha = 0.7f),
-                            contentColor = if (isFavorite) Mocha.Red else Mocha.Text,
-                        ),
-                        modifier = Modifier.size(44.dp),
-                    ) {
-                        Icon(
-                            if (isFavorite) HeartFilled else HeartOutline,
-                            contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
-                            modifier = Modifier.size(22.dp),
-                        )
                     }
+                    val otherButtons: @Composable () -> Unit = {
+                    GlassIconButton(
+                        icon = if (isFavorite) HeartFilled else HeartOutline,
+                        contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
+                        onClick = onToggleFavorite,
+                        tint = if (isFavorite) Mocha.Red else Mocha.Text,
+                    )
                     watchlist?.let { WatchlistButton(it) }
+                    }
+                    if (narrow) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            primaryButton(Modifier.fillMaxWidth())
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                otherButtons()
+                            }
+                        }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            primaryButton(Modifier)
+                            otherButtons()
+                        }
+                    }
                 }
 
                 // On medium+ widths, genres + overview sit inside the hero backdrop.
+                // Genres and seasons are in the facts line above; wide screens add the overview here.
                 if (includeOverviewInHero) {
-                    if (details.genres.isNotEmpty()) {
-                        FlowRow(
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            details.genres.forEach { genre ->
-                                GenrePill(genre)
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                    }
-
-                    if (details.seasonCount != null && details.episodeCount != null) {
-                        Text(
-                            text = "${details.seasonCount} seasons · ${details.episodeCount} episodes",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        )
-                        Spacer(Modifier.height(4.dp))
-                    }
-
                     Text(
                         text = media.overview.ifBlank { "No overview available." },
                         style = MaterialTheme.typography.bodyMedium,
                         color = Mocha.Subtext0,
                         maxLines = 4,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 16.dp),
+                        modifier = Modifier.padding(horizontal = 20.dp).widthIn(max = 640.dp),
                     )
+                    Spacer(Modifier.height(8.dp))
                 }
             }
         }
@@ -720,37 +658,11 @@ private fun LazyListScope.detailsSection(
 
     // On narrow screens the genres, season info, and overview are separate items below the hero.
     if (!includeOverviewInHero) {
-        // Genre pills.
-        if (details.genres.isNotEmpty()) {
-            item {
-                FlowRow(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    details.genres.forEach { genre ->
-                        GenrePill(genre)
-                    }
-                }
-            }
-        }
-
-        if (details.seasonCount != null && details.episodeCount != null) {
-            item {
-                Text(
-                    text = "${details.seasonCount} seasons · ${details.episodeCount} episodes",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
-        }
-
         // Overview with expand/collapse.
         item {
-            SectionTitle("Overview")
             ExpandableOverview(
                 text = media.overview.ifBlank { "No overview available." },
-                modifier = Modifier.padding(horizontal = 16.dp),
+                modifier = Modifier.padding(horizontal = 20.dp),
             )
         }
     }
@@ -765,7 +677,8 @@ private fun ExpandableOverview(text: String, modifier: Modifier = Modifier) {
     Column(modifier = modifier.animateContentSize()) {
         Text(
             text = text,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Mocha.Subtext0,
             maxLines = if (expanded) Int.MAX_VALUE else 3,
             overflow = TextOverflow.Ellipsis,
             onTextLayout = { result ->
@@ -857,15 +770,11 @@ private fun SeasonChips(
     LazyRow(
         state = rowState,
         modifier = Modifier.dragToScroll(rowState),
-        contentPadding = PaddingValues(horizontal = 16.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(seasons, key = { it.number }) { season ->
-            FilterChip(
-                selected = selectedSeason == season.number,
-                onClick = { onSelect(season.number) },
-                label = { Text("${season.name} · ${season.episodeCount}") },
-            )
+            ChoicePill(season.name, selected = selectedSeason == season.number, onClick = { onSelect(season.number) })
         }
     }
 }
@@ -898,7 +807,7 @@ private fun EpisodeList(
             }
         }
         // Rows carry 8dp of padding themselves, so their press highlight has room around the content.
-        is UiState.Success -> Column(modifier = Modifier.padding(horizontal = 8.dp)) {
+        is UiState.Success -> Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             val downloadedEpisodes = LocalDownloadedEpisodes.current
             content.data.forEach { episode ->
                 val progress = episodeProgress[episode.seasonNumber to episode.number]
@@ -935,9 +844,9 @@ private fun EpisodeRow(
         // Thumbnail with play overlay and progress bar.
         Box(
             modifier = Modifier
-                .width(140.dp)
+                .width(150.dp)
                 .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(12.dp)),
+                .clip(RoundedCornerShape(10.dp)),
         ) {
             MediaPoster(
                 url = episode.stillUrl,
@@ -993,10 +902,12 @@ private fun EpisodeRow(
                         .align(Alignment.BottomCenter),
                     color = Mocha.Mauve,
                     trackColor = Color.White.copy(alpha = 0.2f),
+                    drawStopIndicator = {},
+                    gapSize = 0.dp,
                 )
             }
         }
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f).padding(top = 2.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1004,24 +915,11 @@ private fun EpisodeRow(
                 Text(
                     text = "${episode.number}. ${episode.name}",
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                if (isDownloaded) {
-                    Box(
-                        modifier = Modifier
-                            .background(Mocha.Green.copy(alpha = 0.18f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                    ) {
-                        Text(
-                            text = "Downloaded",
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
-                            color = Mocha.Green,
-                        )
-                    }
-                }
             }
             val meta = listOfNotNull(
                 episode.airDate,
@@ -1040,7 +938,8 @@ private fun EpisodeRow(
                 Text(
                     text = episode.overview,
                     style = MaterialTheme.typography.bodySmall,
-                    maxLines = 3,
+                    color = Mocha.Subtext0,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -1053,8 +952,7 @@ private fun SectionTitle(title: String) {
     Text(
         text = title,
         style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(start = 16.dp, top = 24.dp, end = 16.dp, bottom = 8.dp),
+        modifier = Modifier.padding(start = 20.dp, top = 24.dp, end = 20.dp, bottom = 12.dp),
     )
 }
 
@@ -1121,9 +1019,10 @@ private fun WatchlistButton(control: WatchlistControl) {
         Surface(
             onClick = { open = true },
             shape = RoundedCornerShape(50),
-            color = if (status != null) Mocha.Mauve.copy(alpha = 0.25f) else Mocha.Surface0.copy(alpha = 0.7f),
+            color = if (status != null) Mocha.Mauve.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.14f),
             contentColor = if (status != null) Mocha.Mauve else Mocha.Text,
-            modifier = Modifier.height(44.dp),
+            border = BorderStroke(1.dp, if (status != null) Mocha.Mauve.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.18f)),
+            modifier = Modifier.height(46.dp),
         ) {
             Box(Modifier.padding(horizontal = 18.dp), contentAlignment = Alignment.Center) {
                 Text(

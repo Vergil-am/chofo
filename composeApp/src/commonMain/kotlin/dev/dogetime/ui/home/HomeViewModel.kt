@@ -24,6 +24,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/** What the hero shows beyond the card: the title's logo art and its genres. */
+data class FeaturedExtras(val logoUrl: String?, val genres: List<String>)
+
 data class HomeContent(
     val popularMovies: List<MediaItem> = emptyList(),
     val popularTv: List<MediaItem> = emptyList(),
@@ -48,6 +51,9 @@ data class HomeContent(
             trendingTv.isNotEmpty() || trendingAnime.isNotEmpty() || popularAnime.isNotEmpty()
 }
 
+/** How many titles the hero pages through. */
+const val FEATURED_COUNT = 5
+
 private val ACTIVE_STATUSES = setOf(WatchStatus.Watching, WatchStatus.PlanToWatch, WatchStatus.OnHold)
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -57,9 +63,44 @@ class HomeViewModel(
     watchHistoryRepository: WatchHistoryRepository? = null,
     /** Pulls watch progress from the other signed-in devices; it lands in the watch history. */
     private val syncWatchHistory: () -> Unit = {},
-    watchlist: WatchlistRepository? = null,
+    private val watchlistRepository: WatchlistRepository? = null,
     private val nextEpisodes: NextEpisodeFinder? = null,
 ) : ViewModel() {
+
+    private val _featured = MutableStateFlow<Map<String, FeaturedExtras>>(emptyMap())
+    /** Logo and genres of the hero's titles, by "type:id", as they arrive. */
+    val featured: StateFlow<Map<String, FeaturedExtras>> = _featured.asStateFlow()
+
+    /** "type:id" of every title on the watchlist, for the hero's button. */
+    val onWatchlist: StateFlow<Set<String>> = (watchlistRepository?.observeAll() ?: kotlinx.coroutines.flow.flowOf(emptyList()))
+        .map { entries -> entries.mapTo(mutableSetOf()) { "${it.item.type}:${it.item.id}" } }
+        .stateIn(scope, SharingStarted.Eagerly, initialValue = emptySet())
+
+    /** Adds [item] to Plan to watch, or takes it off the watchlist. */
+    fun toggleWatchlist(item: MediaItem) {
+        val list = watchlistRepository ?: return
+        scope.launch {
+            if ("${item.type}:${item.id}" in onWatchlist.value) list.remove(item.type, item.id)
+            else list.set(item, WatchStatus.PlanToWatch)
+        }
+    }
+
+    private fun loadFeatured(items: List<MediaItem>) {
+        items.forEach { item ->
+            val key = "${item.type}:${item.id}"
+            if (key in _featured.value) return@forEach
+            scope.launch {
+                val details = try {
+                    repository.details(item.type, item.id)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+                _featured.update { it + (key to FeaturedExtras(details?.logoUrl, details?.genres.orEmpty().take(3))) }
+            }
+        }
+    }
 
     private val _state = MutableStateFlow(HomeContent())
     val state: StateFlow<HomeContent> = _state.asStateFlow()
@@ -109,7 +150,7 @@ class HomeViewModel(
     }
 
     /** What's being watched or planned (not completed or dropped), most recently changed first. */
-    val watchlist: StateFlow<List<MediaItem>> = (watchlist?.observeAll() ?: kotlinx.coroutines.flow.flowOf(emptyList()))
+    val watchlist: StateFlow<List<MediaItem>> = (watchlistRepository?.observeAll() ?: kotlinx.coroutines.flow.flowOf(emptyList()))
         .map { entries -> entries.filter { it.status in ACTIVE_STATUSES }.map { it.item } }
         .stateIn(scope, SharingStarted.Eagerly, initialValue = emptyList())
 
@@ -134,6 +175,8 @@ class HomeViewModel(
             try {
                 val items = repository.browse(MediaType.Movie, popularCategory, 1).items
                 _state.update { it.copy(popularMovies = items, isLoadingPopularMovies = false) }
+                // The hero falls back to popular movies when trending ones don't load.
+                if (_state.value.trendingMovies.isEmpty() && !_state.value.isLoadingTrendingMovies) loadFeatured(items.take(FEATURED_COUNT))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -160,6 +203,7 @@ class HomeViewModel(
             try {
                 val items = repository.trending(MediaType.Movie)
                 _state.update { it.copy(trendingMovies = items, isLoadingTrendingMovies = false) }
+                loadFeatured(items.take(FEATURED_COUNT))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

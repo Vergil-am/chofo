@@ -134,7 +134,7 @@ class ContinueWatchingTest {
     }
 
     private suspend fun continueWatching(expect: (List<Triple<Int, Int?, Int?>>) -> Boolean): List<Triple<Int, Int?, Int?>> {
-        val home = HomeViewModel(tmdb.media, FavoritesRepository(db.favoriteDao()), history, watchlist = watchlist, nextEpisodes = finder)
+        val home = HomeViewModel(tmdb.media, FavoritesRepository(db.favoriteDao()), history, watchlistRepository = watchlist, nextEpisodes = finder)
         try {
             return withTimeout(5_000) {
                 home.watchHistory.first { list -> expect(list.map { Triple(it.mediaItem.id, it.season, it.episode) }) }

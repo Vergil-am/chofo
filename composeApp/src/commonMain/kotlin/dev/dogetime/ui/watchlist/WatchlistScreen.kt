@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,15 +11,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -28,58 +23,44 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import dev.dogetime.data.WatchlistRepository
 import dev.dogetime.domain.MediaItem
 import dev.dogetime.domain.WatchStatus
+import dev.dogetime.domain.WatchlistEntry
+import dev.dogetime.ui.components.ChoicePill
 import dev.dogetime.ui.components.MediaGrid
 import dev.dogetime.ui.components.dragToScroll
 
-/** The whole watchlist, one status at a time. */
+/** The watchlist, one status at a time: the Library's Watchlist section. */
 @Composable
-fun WatchlistScreen(
-    watchlist: WatchlistRepository,
+fun WatchlistContent(
+    entries: List<WatchlistEntry>,
     onOpen: (MediaItem) -> Unit,
-    onBack: () -> Unit,
     modifier: Modifier = Modifier,
     bottomInset: Dp = 0.dp,
 ) {
-    val entries by remember(watchlist) { watchlist.observeAll() }.collectAsState(initial = null)
-    val loaded = entries ?: return
-    val counts = loaded.groupingBy { it.status }.eachCount()
+    val counts = entries.groupingBy { it.status }.eachCount()
     // Opens on the first status that has something, Watching first.
     var picked by rememberSaveable { mutableStateOf<WatchStatus?>(null) }
     val status = picked ?: WatchStatus.entries.firstOrNull { (counts[it] ?: 0) > 0 } ?: WatchStatus.Watching
-    val shown = loaded.filter { it.status == status }.map { it.item }
+    val shown = entries.filter { it.status == status }.map { it.item }
 
     Column(modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("← Back") }
-        }
-        Text(
-            text = "Watchlist",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
         val chipsState = rememberLazyListState()
         LazyRow(
             state = chipsState,
             modifier = Modifier.dragToScroll(chipsState),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(WatchStatus.entries, key = { it.name }) { s ->
                 val count = counts[s] ?: 0
-                FilterChip(
-                    selected = s == status,
-                    onClick = { picked = s },
-                    label = { Text(if (count > 0) "${s.label} · $count" else s.label) },
-                )
+                ChoicePill(if (count > 0) "${s.label}  $count" else s.label, selected = s == status, onClick = { picked = s })
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (shown.isEmpty()) {
                 Text(
-                    text = if (loaded.isEmpty()) {
+                    text = if (entries.isEmpty()) {
                         "Nothing here yet. Add titles from their page with the Watchlist button."
                     } else {
                         "Nothing marked ${status.label.lowercase()}."

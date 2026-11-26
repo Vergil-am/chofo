@@ -14,26 +14,6 @@ import kotlinx.coroutines.flow.stateIn
 /** A download, with how far it has been watched if it has watch history. */
 data class DownloadEntry(val item: DownloadItem, val watchProgress: WatchHistoryItem?)
 
-/** State behind [DownloadsScreen]: every download with its watch progress, and the actions on them. */
-class DownloadsViewModel(
-    private val downloadManager: TorrentDownloadManager,
-    watchHistory: WatchHistoryRepository,
-) : ViewModel() {
-
-    /** Null until the downloads are first read from the database. */
-    val downloads: StateFlow<List<DownloadEntry>?> =
-        combine(downloadManager.repository.observeAll(), watchHistory.observeAll()) { downloads, history ->
-            withWatchProgress(downloads, history)
-        }.stateIn(scope, SharingStarted.Eagerly, initialValue = null)
-
-    fun pause(item: DownloadItem) = downloadManager.pauseDownload(item.id)
-
-    fun resume(item: DownloadItem) = downloadManager.resumeDownload(item.id)
-
-    /** Stops [item] and deletes its files. */
-    fun cancel(item: DownloadItem) = downloadManager.cancelDownload(item.id, deleteFiles = true)
-}
-
 /** Pairs each download with its entry in [history], matched by watch-history key. */
 internal fun withWatchProgress(downloads: List<DownloadItem>, history: List<WatchHistoryItem>): List<DownloadEntry> {
     val byKey = history.associateBy { it.watchKey }
