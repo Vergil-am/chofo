@@ -1,6 +1,18 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeCompiler)
+}
+
+// Release signing comes from a git-ignored keystore.properties at the project root; see
+// keystore.properties.example. It is kept out of secrets.properties, whose keys are compiled
+// into the app. Without it, release builds are signed with the debug key, as before.
+val keystoreProperties = rootProject.file("keystore.properties").takeIf { it.isFile }?.let { file ->
+    Properties().apply { file.inputStream().use { load(it) } }
+}
+if (keystoreProperties == null && gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }) {
+    logger.warn("keystore.properties not found: the release build is signed with the debug key.")
 }
 
 android {
@@ -23,10 +35,23 @@ android {
         }
     }
 
+    signingConfigs {
+        if (keystoreProperties != null) {
+            create("release") {
+                fun required(key: String): String = keystoreProperties.getProperty(key)?.takeIf { it.isNotBlank() }
+                    ?: throw GradleException("keystore.properties is missing \"$key\".")
+                storeFile = file(required("storeFile"))
+                storePassword = required("storePassword")
+                keyAlias = required("keyAlias")
+                keyPassword = required("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (keystoreProperties != null) "release" else "debug")
 //            isShrinkResources = true
 //            proguardFiles(
 //                getDefaultProguardFile("proguard-android-optimize.txt"),

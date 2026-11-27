@@ -16,3 +16,8 @@ composeApp/app-resources/**/*.dll
 composeApp/app-resources/**/*.dylib
 composeApp/app-resources/**/*.so
 *.dll
+
+# Android release signing (see keystore.properties.example)
+keystore.properties
+*.jks
+*.keystore
