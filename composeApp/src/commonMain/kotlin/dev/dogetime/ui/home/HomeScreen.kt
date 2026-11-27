@@ -1,5 +1,6 @@
 package dev.dogetime.ui.home
 
+import dev.dogetime.ui.components.windowWideImageUrl
 import androidx.compose.foundation.layout.FlowRow
 import dev.dogetime.ui.player.PlayerIcons
 import androidx.compose.material3.Button
@@ -372,7 +373,7 @@ private fun FeaturedBanner(
                 val url = item.backdropUrl ?: item.posterUrl
                 if (url != null) {
                     AsyncImage(
-                        model = url,
+                        model = windowWideImageUrl(url),
                         contentDescription = item.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
