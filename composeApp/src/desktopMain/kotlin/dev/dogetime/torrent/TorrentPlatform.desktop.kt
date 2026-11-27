@@ -35,6 +35,7 @@ internal actual fun prepareTorrentLibrary() {
         ?: throw IllegalStateException("This build has no torrent engine for $os.")
     val file = File(appDir, "native/${resource.substringAfterLast('/')}")
     file.parentFile.mkdirs()
+    deleteStaleCopies(file.parentFile)
     // Copied each start, so an app update never runs an older library. The copy is written next
     // to it and moved into place: overwriting the file itself would corrupt it under any process
     // that has it loaded. On Windows a loaded library can't be replaced, so the existing one is used.
@@ -49,3 +50,16 @@ internal actual fun prepareTorrentLibrary() {
     }.onFailure { if (!file.isFile) throw it }
     System.setProperty("libtorrent4j.jni.path", file.absolutePath)
 }
+
+/**
+ * Deletes temporary library copies left behind when the app was killed mid-copy. Recent ones are
+ * kept: another running instance may still be writing it.
+ */
+private fun deleteStaleCopies(dir: File) {
+    val cutoff = System.currentTimeMillis() - STALE_COPY_AGE_MS
+    dir.listFiles { f -> f.isFile && f.name.startsWith("libtorrent4j") && f.name.endsWith(".tmp") }
+        ?.filter { it.lastModified() < cutoff }
+        ?.forEach { it.delete() }
+}
+
+private const val STALE_COPY_AGE_MS = 10 * 60 * 1000L
