@@ -69,6 +69,11 @@ class Navigator(initial: List<Destination> = listOf(Destination.Home)) {
         backStack.add(destination)
     }
 
+    /** Swaps the top screen for [destination], so Back skips the one replaced. */
+    fun replace(destination: Destination) {
+        backStack[backStack.lastIndex] = destination
+    }
+
     fun back() {
         if (canGoBack) backStack.removeAt(backStack.lastIndex)
     }

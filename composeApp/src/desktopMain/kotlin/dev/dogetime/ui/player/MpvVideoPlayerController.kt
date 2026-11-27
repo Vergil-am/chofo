@@ -216,6 +216,11 @@ internal class MpvVideoPlayerController(stream: CapturedStream, title: String) :
         selectedSubtitleTrack = track
     }
 
+    override fun selectAudioTrack(track: AudioTrack) {
+        command("set", "aid", track.id.toString())
+        selectedAudioTrack = track
+    }
+
     override fun addExternalSubtitle(path: String, title: String, language: String?) {
         // sub-add <url> [<flags> [<title> [<lang>]]]
         val args = mutableListOf("sub-add", path, "select", title)
@@ -239,21 +244,35 @@ internal class MpvVideoPlayerController(stream: CapturedStream, title: String) :
     }
 
     private fun updateTracks(lib: MpvLibrary, h: Pointer) {
-        val count = getPropertyString(lib, h, "track-list/count")?.toIntOrNull() ?: 0
-        val tracks = mutableListOf<SubtitleTrack>()
-        val currentSid = getPropertyString(lib, h, "sid")?.toIntOrNull()
+        fun prop(name: String) = getPropertyString(lib, h, name)
+        val count = prop("track-list/count")?.toIntOrNull() ?: 0
+        val subs = mutableListOf<SubtitleTrack>()
+        val audio = mutableListOf<AudioTrack>()
+        val currentSid = prop("sid")?.toIntOrNull()
+        val currentAid = prop("aid")?.toIntOrNull()
         for (i in 0 until count) {
-            val type = getPropertyString(lib, h, "track-list/$i/type")
+            val type = prop("track-list/$i/type")
+            if (type != "sub" && type != "audio") continue
+            val id = prop("track-list/$i/id")?.toIntOrNull() ?: (i + 1)
+            val title = prop("track-list/$i/title").orEmpty()
+            val lang = prop("track-list/$i/lang")
             if (type == "sub") {
-                val id = getPropertyString(lib, h, "track-list/$i/id")?.toIntOrNull() ?: (i + 1)
-                val title = getPropertyString(lib, h, "track-list/$i/title").orEmpty()
-                val lang = getPropertyString(lib, h, "track-list/$i/lang")
-                tracks += SubtitleTrack(id = id, title = title, language = lang)
+                subs += SubtitleTrack(id = id, title = title, language = lang)
+            } else {
+                audio += AudioTrack(
+                    id = id,
+                    title = title,
+                    language = lang,
+                    codec = prop("track-list/$i/codec"),
+                    channels = prop("track-list/$i/demux-channel-count")?.toIntOrNull(),
+                )
             }
         }
         onUi {
-            subtitleTracks = tracks
-            selectedSubtitleTrack = tracks.find { it.id == currentSid }
+            subtitleTracks = subs
+            selectedSubtitleTrack = subs.find { it.id == currentSid }
+            audioTracks = audio
+            selectedAudioTrack = audio.find { it.id == currentAid }
         }
     }
 

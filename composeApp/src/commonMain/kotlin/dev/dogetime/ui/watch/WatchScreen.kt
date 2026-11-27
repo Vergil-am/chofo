@@ -63,6 +63,7 @@ import dev.dogetime.domain.RememberedStream
 import dev.dogetime.domain.VideoSource
 import dev.dogetime.domain.WatchTarget
 import dev.dogetime.ui.player.PlaybackSource
+import dev.dogetime.ui.player.PlayerSidePanel
 import dev.dogetime.ui.player.PlayerViewModelFactory
 import dev.dogetime.ui.player.VideoPlayerScreen
 import kotlinx.coroutines.delay
@@ -89,8 +90,46 @@ fun WatchScreen(
     mediaItem: MediaItem? = null,
     /** How many MB of a torrent to download before playback starts; 0 starts straight away. */
     torrentBufferMb: Int = 0,
+    /** Plays another episode of the show, picked in the player's panel, with its title. */
+    onPlayEpisode: ((target: WatchTarget.Episode, title: String) -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsState()
+
+    // The player's side panels: other streams, and for a show, its other episodes.
+    val episodeTarget = target as? WatchTarget.Episode
+    val episodeProgress by viewModel.episodeProgress.collectAsState()
+    val sourcesPanel = PlayerSidePanel("Sources", PlayerIcons.Sources) { close ->
+        SourcesPanel(
+            state = state,
+            onLoad = viewModel::loadSourcesForPanel,
+            onSelectProvider = viewModel::selectProvider,
+            onRetry = viewModel::loadTorrents,
+            onPick = viewModel::switchSource,
+            onClose = close,
+        )
+    }
+    val episodesPanel = if (episodeTarget != null && viewModel.hasEpisodes && onPlayEpisode != null) {
+        PlayerSidePanel("Episodes", PlayerIcons.Episodes) { close ->
+            EpisodesPanel(
+                panel = state.episodePanel,
+                episodeProgress = episodeProgress,
+                current = episodeTarget,
+                onLoad = viewModel::loadEpisodePanel,
+                onSelectSeason = viewModel::selectEpisodeSeason,
+                onPick = { picked, episodeTitle ->
+                    val next = picked as? WatchTarget.Episode
+                    if (next != null && (next.season != episodeTarget.season || next.episode != episodeTarget.episode)) {
+                        // Keep the ids the show was opened with, which add-ons look it up by.
+                        onPlayEpisode(episodeTarget.copy(season = next.season, episode = next.episode), episodeTitle)
+                    }
+                },
+                onClose = close,
+            )
+        }
+    } else {
+        null
+    }
+    val sidePanels = listOfNotNull(episodesPanel, sourcesPanel)
 
     // Opened from Continue Watching: a spinner while the last stream is found, not the menu.
     if (state.step == WatchStep.SourceMenu && (state.isCheckingRemembered || (state.isResuming && state.remembered != null))) {
@@ -124,6 +163,7 @@ fun WatchScreen(
                 mediaItem = mediaItem,
                 createPlayerViewModel = createPlayerViewModel,
                 bufferMb = torrentBufferMb,
+                sidePanels = sidePanels,
             )
         }
         WatchStep.Torrents -> Box(modifier = Modifier.fillMaxSize()) {
@@ -165,6 +205,7 @@ fun WatchScreen(
                 target = target,
                 mediaItem = mediaItem,
                 createPlayerViewModel = createPlayerViewModel,
+                sidePanels = sidePanels,
             )
         }
     }
@@ -209,6 +250,7 @@ private fun SourcePlayer(
     target: WatchTarget? = null,
     mediaItem: MediaItem? = null,
     createPlayerViewModel: PlayerViewModelFactory,
+    sidePanels: List<PlayerSidePanel> = emptyList(),
 ) {
     val allowedHost = remember(url) { hostOf(url) }
     val webState = rememberWebViewState(url)
@@ -245,6 +287,7 @@ private fun SourcePlayer(
                 onOpenExternal = ExternalPlayer.name?.let {
                     { message = ExternalPlayer.play(found, title) ?: "Opening in $it…" }
                 },
+                sidePanels = sidePanels,
             )
             message?.let { MessageChip(it, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp)) }
         }

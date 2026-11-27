@@ -3,6 +3,13 @@ package dev.dogetime.ui.player
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -36,6 +43,16 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.clip
+import dev.chrisbanes.haze.ExperimentalHazeApi
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.glass.hazeGlass
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+import dev.dogetime.ui.components.GlassPanelShape
+import dev.dogetime.ui.components.rememberGlassPanelStyle
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -59,6 +76,16 @@ private const val PROGRESS_SAVE_INTERVAL_MS = 5_000L
 typealias PlayerViewModelFactory = (PlaybackSource) -> PlayerViewModel
 
 /**
+ * A panel the player slides in from the side, over the video, e.g. other sources or episodes.
+ * [label] and [icon] make its button in the top bar; [content] gets a callback that closes it.
+ */
+class PlayerSidePanel(
+    val label: String,
+    val icon: ImageVector,
+    val content: @Composable (onClose: () -> Unit) -> Unit,
+)
+
+/**
  * Full-screen player for [source] with auto-hiding controls: a top bar (back, title, speed,
  * external player), large center buttons, and a seek bar. On touch screens a tap shows or hides
  * the controls and a double tap on either side seeks; with a mouse a click pauses and a double
@@ -74,6 +101,7 @@ fun VideoPlayerScreen(
     onOpenExternal: (() -> Unit)?,
     modifier: Modifier = Modifier,
     status: (@Composable () -> Unit)? = null,
+    sidePanels: List<PlayerSidePanel> = emptyList(),
 ) {
     // Sources are data classes, so an equal source on recomposition keeps the same ViewModel.
     val viewModel = rememberViewModel(source) { createViewModel(source) }
@@ -107,6 +135,7 @@ fun VideoPlayerScreen(
             onRetry = { attempt++ },
             modifier = modifier,
             status = status,
+            sidePanels = sidePanels,
         )
     }
 }
@@ -125,6 +154,7 @@ private fun PlayerContent(
     onRetry: () -> Unit,
     modifier: Modifier,
     status: (@Composable () -> Unit)?,
+    sidePanels: List<PlayerSidePanel>,
 ) {
     val controller = rememberVideoPlayerController(stream, title)
     val fullscreen = rememberFullscreenController()
@@ -134,13 +164,17 @@ private fun PlayerContent(
     var interactions by remember { mutableIntStateOf(0) }
     var scrubbing by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    // Index into sidePanels of the open panel, or -1.
+    var openPanel by remember { mutableIntStateOf(-1) }
+    val panelOpen = openPanel in sidePanels.indices
+    val hazeState = rememberHazeState()
     fun showControls() {
         controlsVisible = true
         interactions++
     }
     // Controls fade out while playing, unless the user is using them.
-    LaunchedEffect(controlsVisible, controller.isPlaying, interactions, scrubbing, menuOpen) {
-        if (controlsVisible && controller.isPlaying && !scrubbing && !menuOpen) {
+    LaunchedEffect(controlsVisible, controller.isPlaying, interactions, scrubbing, menuOpen, panelOpen) {
+        if (controlsVisible && controller.isPlaying && !scrubbing && !menuOpen && !panelOpen) {
             delay(CONTROLS_HIDE_DELAY_MS)
             controlsVisible = false
         }
@@ -246,6 +280,10 @@ private fun PlayerContent(
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
+                if (panelOpen && event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                    openPanel = -1
+                    return@onPreviewKeyEvent true
+                }
                 handleKey(
                     event = event,
                     controller = controller,
@@ -265,7 +303,8 @@ private fun PlayerContent(
                 }
             },
     ) {
-        VideoSurface(controller = controller, fit = fit, modifier = Modifier.fillMaxSize())
+        // The side panels' frosted glass blurs the video behind them.
+        VideoSurface(controller = controller, fit = fit, modifier = Modifier.fillMaxSize().hazeSource(hazeState))
 
         // Gestures on the video itself, below the controls.
         Box(
@@ -347,6 +386,8 @@ private fun PlayerContent(
                         onMenuOpenChange = { menuOpen = it; showControls() },
                         onBack = onBack,
                         onOpenExternal = onOpenExternal?.let { open -> { controller.pause(); open() } },
+                        panels = sidePanels.map { it.label to it.icon },
+                        onOpenPanel = { openPanel = it; showControls() },
                     )
                     if (status != null) {
                         Box(Modifier.padding(start = 16.dp)) { status() }
@@ -381,6 +422,65 @@ private fun PlayerContent(
                         .align(Alignment.BottomCenter)
                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)),
                 )
+            }
+        }
+
+        if (sidePanels.isNotEmpty()) {
+            // Kept while the panel slides out, so its content doesn't vanish mid-animation.
+            var shownPanel by remember { mutableIntStateOf(-1) }
+            if (panelOpen) shownPanel = openPanel
+            sidePanels.getOrNull(shownPanel)?.let { panel ->
+                SidePanelOverlay(
+                    open = panelOpen,
+                    hazeState = hazeState,
+                    onClose = { openPanel = -1; showControls() },
+                    content = panel.content,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * [content] on a frosted-glass panel sliding in from the end edge, blurring the video behind it
+ * like the episodes panel on the details screen. A tap beside it closes it.
+ */
+@OptIn(ExperimentalHazeApi::class)
+@Composable
+private fun SidePanelOverlay(
+    open: Boolean,
+    hazeState: HazeState,
+    onClose: () -> Unit,
+    content: @Composable (onClose: () -> Unit) -> Unit,
+) {
+    AnimatedVisibility(visible = open, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.3f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose),
+        )
+    }
+    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
+        // Room for the episode cards, but not most of a big screen.
+        val width = minOf(maxWidth * 0.92f, 480.dp)
+        AnimatedVisibility(
+            visible = open,
+            enter = slideInHorizontally { it } + fadeIn(),
+            exit = slideOutHorizontally { it } + fadeOut(),
+        ) {
+            Box(
+                Modifier
+                    .width(width)
+                    .fillMaxHeight()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.End))
+                    .padding(12.dp)
+                    .clip(GlassPanelShape)
+                    .hazeGlass(input = HazeInput.Sources(hazeState), style = rememberGlassPanelStyle())
+                    // Taps on empty parts of the panel mustn't reach the scrim or the video.
+                    .pointerInput(Unit) { detectTapGestures { } },
+            ) {
+                content(onClose)
             }
         }
     }

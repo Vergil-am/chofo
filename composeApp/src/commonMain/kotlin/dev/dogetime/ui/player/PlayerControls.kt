@@ -72,6 +72,9 @@ internal fun TopBar(
     onBack: () -> Unit,
     onOpenExternal: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    /** Buttons for the side panels (label and icon); [onOpenPanel] gets the index of the one pressed. */
+    panels: List<Pair<String, ImageVector>> = emptyList(),
+    onOpenPanel: (Int) -> Unit = {},
 ) {
     Row(
         modifier = modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
@@ -101,6 +104,19 @@ internal fun TopBar(
                 onOpenChange = onMenuOpenChange,
             )
         }
+        // Only worth a menu when the file has a choice, like a dub and the original.
+        if (controller.audioTracks.size > 1) {
+            val selected = controller.selectedAudioTrack
+            PillMenu(
+                icon = PlayerIcons.Audio,
+                label = selected?.shortLabel ?: "Audio",
+                options = controller.audioTracks,
+                optionLabel = { it.label },
+                isSelected = { it.id == selected?.id },
+                onSelect = controller::selectAudioTrack,
+                onOpenChange = onMenuOpenChange,
+            )
+        }
         val hasSubs = controller.subtitleTracks.isNotEmpty() ||
             subtitles.canSearchSubdl || subtitles.canSearchOpenSubtitles || subtitles.canSearchYtsSubs ||
             subtitles.subtitleGroups.isNotEmpty() || subtitles.isLoadingAnySubtitles
@@ -125,6 +141,12 @@ internal fun TopBar(
             onSelect = controller::setPlaybackSpeed,
             onOpenChange = onMenuOpenChange,
         )
+        panels.forEachIndexed { index, (label, icon) ->
+            Pill(onClick = { onOpenPanel(index) }) {
+                Icon(icon, contentDescription = null, tint = ControlTint, modifier = Modifier.size(16.dp))
+                Text(label, color = ControlTint, style = MaterialTheme.typography.labelLarge)
+            }
+        }
         if (onOpenExternal != null) {
             PlayerIconButton(PlayerIcons.OpenExternal, "Open in another player", onClick = onOpenExternal)
         }

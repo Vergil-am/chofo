@@ -53,7 +53,7 @@ import dev.dogetime.ui.components.dragToScroll
 import dev.dogetime.ui.player.PlayerIcons
 
 /** The quality groups the torrent list is filtered by. */
-private enum class QualityGroup(val label: String) {
+internal enum class QualityGroup(val label: String) {
     UltraHd("4K"),
     FullHd("Full HD"),
     Hd("HD"),
@@ -62,7 +62,7 @@ private enum class QualityGroup(val label: String) {
 }
 
 /** Groups quality labels: "4k HDR" is 4K, "720p" is HD, "480p" is SD, and "DVDRip" or no label is Unknown. */
-private val TorrentOption.group: QualityGroup
+internal val TorrentOption.group: QualityGroup
     get() = when (quality.substringBefore(' ').lowercase()) {
         "4k", "2160p" -> QualityGroup.UltraHd
         "1080p" -> QualityGroup.FullHd
@@ -157,7 +157,7 @@ internal fun TorrentPicker(
 }
 
 @Composable
-private fun ProviderChips(addons: List<StreamAddon>, selected: StreamAddon?, onSelect: (StreamAddon) -> Unit) {
+internal fun ProviderChips(addons: List<StreamAddon>, selected: StreamAddon?, onSelect: (StreamAddon) -> Unit) {
     val rowState = rememberLazyListState()
     LazyRow(
         state = rowState,
@@ -172,7 +172,7 @@ private fun ProviderChips(addons: List<StreamAddon>, selected: StreamAddon?, onS
 }
 
 @Composable
-private fun QualityChips(selected: QualityGroup, onSelect: (QualityGroup) -> Unit) {
+internal fun QualityChips(selected: QualityGroup, onSelect: (QualityGroup) -> Unit) {
     val rowState = rememberLazyListState()
     LazyRow(
         state = rowState,
@@ -186,11 +186,13 @@ private fun QualityChips(selected: QualityGroup, onSelect: (QualityGroup) -> Uni
     }
 }
 
+/** One stream of the list. [isPlaying] marks the one the player has open. */
 @Composable
-private fun TorrentRow(
+internal fun TorrentRow(
     option: TorrentOption,
     onClick: () -> Unit,
     onDownloadClick: (() -> Unit)? = null,
+    isPlaying: Boolean = false,
 ) {
     GlassCard(onClick = onClick, modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth()) {
     Row(
@@ -213,6 +215,18 @@ private fun TorrentRow(
                         .background(if (option.group == QualityGroup.UltraHd) Mocha.Peach else Mocha.Text)
                         .padding(horizontal = 7.dp, vertical = 2.dp),
                 )
+                if (isPlaying) {
+                    Text(
+                        text = "Playing",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Mocha.Crust,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Mocha.Green)
+                            .padding(horizontal = 7.dp, vertical = 2.dp),
+                    )
+                }
                 Text(
                     text = listOfNotNull(
                         if (option.isTorrent) null else "Direct link",

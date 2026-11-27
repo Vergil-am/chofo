@@ -117,5 +117,6 @@ class AppContainer {
         subdl = subdl,
         watchHistory = watchHistory,
         resumeLastStream = destination.resumeLastStream,
+        media = repository,
     )
 }

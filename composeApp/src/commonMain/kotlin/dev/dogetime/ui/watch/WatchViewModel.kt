@@ -5,6 +5,7 @@ import dev.dogetime.core.Torrents
 import dev.dogetime.core.UiState
 import dev.dogetime.core.ViewModel
 import dev.dogetime.core.runForUiState
+import dev.dogetime.data.MediaRepository
 import dev.dogetime.data.OpenSubtitlesApi
 import dev.dogetime.data.StremioSubtitlesApi
 import dev.dogetime.data.SubdlApi
@@ -13,6 +14,12 @@ import dev.dogetime.data.addons.StreamAddonRepository
 import dev.dogetime.data.TorrentioApi
 import dev.dogetime.data.WatchHistoryRepository
 import dev.dogetime.domain.DownloadItem
+import dev.dogetime.domain.MediaDetails
+import dev.dogetime.ui.details.EpisodesState
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import dev.dogetime.domain.MediaItem
 import dev.dogetime.domain.MediaType
 import dev.dogetime.domain.RememberedStream
@@ -74,6 +81,14 @@ data class WatchUiState(
     val isCheckingRemembered: Boolean = false,
     /** No installed add-on can list streams for this title (or torrents don't work here). */
     val noStreamSources: Boolean = false,
+    /** The show's episodes, for the player's episode panel. Untouched for movies. */
+    val episodePanel: EpisodePanelState = EpisodePanelState(),
+)
+
+/** The show and its selected season's episodes, loaded when the player's episode panel first opens. */
+data class EpisodePanelState(
+    val details: UiState<MediaDetails> = UiState.Loading,
+    val episodes: EpisodesState = EpisodesState(),
 )
 
 /**
@@ -94,6 +109,8 @@ class WatchViewModel(
     private val watchHistory: WatchHistoryRepository? = null,
     /** Opened from Continue Watching: play the last stream without showing the source menu. */
     private val resumeLastStream: Boolean = false,
+    /** Looks up the show's episodes for the player's panel. Without it, there's no episode list. */
+    private val media: MediaRepository? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(WatchUiState(isCheckingRemembered = true))
@@ -106,6 +123,11 @@ class WatchViewModel(
     private var resumeJob: Job? = null
     private var subtitlesJob: Job? = null
     private var noticeJob: Job? = null
+    private var seasonsJob: Job? = null
+    private var episodesJob: Job? = null
+
+    /** Whether the player can list this show's other episodes. */
+    val hasEpisodes: Boolean get() = target is WatchTarget.Episode && media != null
 
     fun pickSource(source: VideoSource) {
         _state.update { it.copy(step = WatchStep.Source(source)) }
@@ -271,6 +293,79 @@ class WatchViewModel(
         }
         _state.update { it.copy(step = WatchStep.Torrents, provider = addon, isCheckingRemembered = false, isResuming = false) }
         loadTorrents()
+    }
+
+    /**
+     * Makes sure the player's source panel has a stream list: when the player was opened straight
+     * from a remembered stream, no list was loaded yet. A failed list is tried again.
+     */
+    fun loadSourcesForPanel() {
+        val state = _state.value
+        if (state.provider == null) {
+            val addon = state.addons.firstOrNull { it.id == state.remembered?.addonId } ?: state.addons.firstOrNull() ?: return
+            selectProvider(addon)
+            return
+        }
+        val needsList = state.torrents is UiState.Error || (state.torrents is UiState.Loading && torrentsJob?.isActive != true)
+        if (needsList) loadTorrents()
+    }
+
+    /** Plays [option] from the player's panel, unless it's what's playing already. */
+    fun switchSource(option: TorrentOption) {
+        val current = (_state.value.step as? WatchStep.Torrent)?.pick
+        if (current != null && current.isSameStream(option)) return
+        playTorrent(option)
+    }
+
+    /** How far each episode of the show was watched (season to episode), for the episode panel. */
+    val episodeProgress: StateFlow<Map<Pair<Int, Int>, Float>> by lazy {
+        val key = historyKey()
+        (watchHistory?.observeByMedia(key.type, key.id) ?: emptyFlow())
+            .map { list ->
+                list.mapNotNull { item ->
+                    val s = item.season
+                    val e = item.episode
+                    if (s != null && e != null && item.progress > 0f) (s to e) to item.progress else null
+                }.toMap()
+            }
+            .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }
+
+    /** Loads the show and the playing episode's season, the first time the episode panel opens. */
+    fun loadEpisodePanel() {
+        val episode = target as? WatchTarget.Episode ?: return
+        val repository = media ?: return
+        val panel = _state.value.episodePanel
+        if (seasonsJob?.isActive == true) return
+        if (panel.details is UiState.Success) {
+            if (panel.episodes.content is UiState.Error) panel.episodes.seasonNumber?.let(::selectEpisodeSeason)
+            return
+        }
+        _state.update { it.copy(episodePanel = EpisodePanelState()) }
+        seasonsJob = scope.launch {
+            val details = runForUiState { repository.details(historyKey().type, episode.showId) }
+            _state.update { it.copy(episodePanel = it.episodePanel.copy(details = details)) }
+            if (details is UiState.Success) {
+                val seasons = details.data.seasons
+                val season = seasons.firstOrNull { it.number == episode.season }?.number
+                    ?: seasons.firstOrNull()?.number
+                    ?: episode.season
+                selectEpisodeSeason(season)
+            }
+        }
+    }
+
+    fun selectEpisodeSeason(season: Int) {
+        val episode = target as? WatchTarget.Episode ?: return
+        val repository = media ?: return
+        val current = _state.value.episodePanel.episodes
+        if (current.seasonNumber == season && current.content is UiState.Success) return
+        episodesJob?.cancel()
+        _state.update { it.copy(episodePanel = it.episodePanel.copy(episodes = EpisodesState(season, UiState.Loading))) }
+        episodesJob = scope.launch {
+            val episodes = runForUiState { repository.episodes(episode.showId, season, historyKey().type) }
+            _state.update { it.copy(episodePanel = it.episodePanel.copy(episodes = EpisodesState(season, episodes))) }
+        }
     }
 
     /** Back to the stream list ("Change source"), opening one if none was yet. */

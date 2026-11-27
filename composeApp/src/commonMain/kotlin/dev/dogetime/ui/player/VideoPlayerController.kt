@@ -49,6 +49,43 @@ data class SubtitleTrack(
 }
 
 /**
+ * An audio track in the media file: a dub, a commentary, or another mix of the same audio.
+ * [channels] is the channel count when known (2 for stereo, 6 for 5.1).
+ */
+data class AudioTrack(
+    val id: Int,
+    val title: String = "",
+    val language: String? = null,
+    val codec: String? = null,
+    val channels: Int? = null,
+) {
+    val label: String
+        get() {
+            val name = when {
+                title.isNotBlank() && !language.isNullOrBlank() && !title.contains(language, ignoreCase = true) ->
+                    "$title (${language.uppercase()})"
+                title.isNotBlank() -> title
+                !language.isNullOrBlank() -> language.uppercase()
+                else -> "Track $id"
+            }
+            val details = listOfNotNull(codec?.takeIf { it.isNotBlank() }?.uppercase(), channels?.let(::channelLayout))
+            return if (details.isEmpty()) name else "$name · ${details.joinToString(" ")}"
+        }
+
+    /** The language alone, short enough for the menu's button. */
+    val shortLabel: String
+        get() = language?.takeIf { it.isNotBlank() }?.uppercase() ?: title.takeIf { it.isNotBlank() } ?: "Track $id"
+}
+
+private fun channelLayout(channels: Int): String = when (channels) {
+    1 -> "Mono"
+    2 -> "Stereo"
+    6 -> "5.1"
+    8 -> "7.1"
+    else -> "${channels}ch"
+}
+
+/**
  * Playback of one stream by the platform's player (ExoPlayer, AVPlayer or libmpv).
  * Its state is Compose state, so the controls update on their own.
  */
@@ -104,6 +141,14 @@ abstract class VideoPlayerController {
     var selectedSubtitleTrack by mutableStateOf<SubtitleTrack?>(null)
         protected set
 
+    /** Audio tracks in the stream. Empty until the file is loaded; one or none for most streams. */
+    var audioTracks by mutableStateOf<List<AudioTrack>>(emptyList())
+        protected set
+
+    /** The audio track playing, or null when unknown. */
+    var selectedAudioTrack by mutableStateOf<AudioTrack?>(null)
+        protected set
+
     abstract fun play()
     abstract fun pause()
     abstract fun seekTo(positionMs: Long)
@@ -117,6 +162,9 @@ abstract class VideoPlayerController {
     open fun selectSubtitleTrack(track: SubtitleTrack?) {
         selectedSubtitleTrack = track
     }
+
+    /** Switches to [track]. The default does nothing, for players that can't switch audio. */
+    open fun selectAudioTrack(track: AudioTrack) {}
 
     /**
      * Loads an external subtitle file (e.g. .srt) from [path] on disk, adds it to the track list,

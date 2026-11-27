@@ -36,4 +36,15 @@ class NavigatorTest {
     fun unreadableStateStartsOverAtHome() {
         assertEquals(null, Navigator.Saver.restore("not json"))
     }
+
+    @Test
+    fun replaceSwapsTheTopScreenOnly() {
+        val first = Destination.Watch(WatchTarget.Episode(1, 1, 1), "Show S1E1")
+        val second = first.copy(target = WatchTarget.Episode(1, 1, 2), title = "Show S1E2")
+        val navigator = Navigator(listOf(Destination.Home, first))
+        navigator.replace(second)
+        assertEquals(second, navigator.current)
+        navigator.back()
+        assertEquals(Destination.Home, navigator.current)
+    }
 }

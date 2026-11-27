@@ -51,13 +51,17 @@ import dev.dogetime.ui.components.dragToScroll
 import dev.dogetime.ui.components.oneDecimal
 import dev.dogetime.ui.player.PlayerIcons
 
-/** Season picker and the selected season's episodes. Nothing for movies. */
+/**
+ * Season picker and the selected season's episodes. Nothing for movies. [playing] (season to
+ * episode) marks the episode the player has open.
+ */
 internal fun LazyListScope.episodesSection(
     details: MediaDetails,
     episodes: EpisodesState,
     episodeProgress: Map<Pair<Int, Int>, Float>,
     onSeasonSelected: (Int) -> Unit,
     onWatch: (target: WatchTarget, title: String) -> Unit,
+    playing: Pair<Int, Int>? = null,
 ) {
     if (details.seasons.isEmpty()) return
     item {
@@ -76,6 +80,7 @@ internal fun LazyListScope.episodesSection(
             episodeProgress = episodeProgress,
             onRetry = { episodes.seasonNumber?.let(onSeasonSelected) },
             onWatch = onWatch,
+            playing = playing,
         )
     }
 }
@@ -107,6 +112,7 @@ private fun EpisodeList(
     episodeProgress: Map<Pair<Int, Int>, Float>,
     onRetry: () -> Unit,
     onWatch: (target: WatchTarget, title: String) -> Unit,
+    playing: Pair<Int, Int>?,
 ) {
     when (val content = episodes.content) {
         UiState.Loading -> Box(
@@ -136,6 +142,7 @@ private fun EpisodeList(
                     episode = episode,
                     progress = progress,
                     isDownloaded = isDownloaded,
+                    isPlaying = playing == (episode.seasonNumber to episode.number),
                     onWatch = {
                         val label = "$showTitle S${episode.seasonNumber}E${episode.number}"
                         onWatch(WatchTarget.Episode(showId, episode.seasonNumber, episode.number), label)
@@ -151,12 +158,14 @@ private fun EpisodeRow(
     episode: Episode,
     progress: Float? = null,
     isDownloaded: Boolean = false,
+    isPlaying: Boolean = false,
     onWatch: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
+            .background(if (isPlaying) Color.White.copy(alpha = 0.1f) else Color.Transparent)
             .clickable(onClick = onWatch)
             .padding(8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -232,6 +241,17 @@ private fun EpisodeRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                if (isPlaying) {
+                    Text(
+                        text = "Playing",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Mocha.Crust,
+                        modifier = Modifier
+                            .background(Mocha.Green, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                    )
+                }
                 Text(
                     text = "${episode.number}. ${episode.name}",
                     style = MaterialTheme.typography.titleSmall,

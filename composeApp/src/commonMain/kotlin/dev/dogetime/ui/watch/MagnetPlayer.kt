@@ -31,8 +31,11 @@ import dev.dogetime.core.TorrentStream
 import dev.dogetime.core.Torrents
 import dev.dogetime.domain.MediaItem
 import dev.dogetime.domain.RememberedStream
+import dev.dogetime.domain.TorrentOption
+import dev.dogetime.domain.extractInfoHash
 import dev.dogetime.domain.WatchTarget
 import dev.dogetime.ui.player.PlaybackSource
+import dev.dogetime.ui.player.PlayerSidePanel
 import dev.dogetime.ui.player.PlayerViewModelFactory
 import dev.dogetime.ui.player.VideoPlayerScreen
 import kotlinx.coroutines.CancellationException
@@ -57,6 +60,19 @@ data class TorrentPick(
     val remembered: RememberedStream? = null,
 )
 
+/** Whether [option] is the stream this pick plays: the same file of the same torrent, or the same link. */
+internal fun TorrentPick.isSameStream(option: TorrentOption): Boolean {
+    val direct = directUrl
+    if (direct != null || option.directUrl != null) {
+        if (direct == option.directUrl) return true
+        // Direct links are often fetched again (they expire), so the file name tells them apart.
+        val name = option.fileName ?: option.release
+        return direct != null && option.directUrl != null && name == (fileName ?: remembered?.fileName)
+    }
+    return extractInfoHash(magnet).equals(extractInfoHash(option.magnet), ignoreCase = true) &&
+        (fileIndex == option.fileIndex || (fileIndex == null && fileName != null && fileName == option.fileName))
+}
+
 /**
  * Plays [pick]: the torrent's video file is downloaded in order while it plays, and streamed to
  * the app's player from a local server. Leaving the screen stops the download and deletes it.
@@ -74,6 +90,7 @@ internal fun MagnetPlayer(
     mediaItem: MediaItem? = null,
     createPlayerViewModel: PlayerViewModelFactory,
     bufferMb: Int = 0,
+    sidePanels: List<PlayerSidePanel> = emptyList(),
 ) {
     // A direct link needs no torrent: play it straight away.
     val direct = pick.directUrl
@@ -87,6 +104,7 @@ internal fun MagnetPlayer(
             onBack = onBack,
             createPlayerViewModel = createPlayerViewModel,
             modifier = modifier,
+            sidePanels = sidePanels,
         )
         return
     }
@@ -156,6 +174,7 @@ internal fun MagnetPlayer(
                     { message = ExternalPlayer.play(opened.stream, title) ?: "Opening in $it…" }
                 },
                 status = { TorrentStatsChip(live) },
+                sidePanels = sidePanels,
             )
             message?.let { MessageChip(it, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp)) }
         }
@@ -202,6 +221,7 @@ private fun DirectStreamPlayer(
     onBack: () -> Unit,
     createPlayerViewModel: PlayerViewModelFactory,
     modifier: Modifier,
+    sidePanels: List<PlayerSidePanel>,
 ) {
     var message by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(message) {
@@ -218,6 +238,7 @@ private fun DirectStreamPlayer(
             onOpenExternal = ExternalPlayer.name?.let {
                 { message = ExternalPlayer.play(stream, title) ?: "Opening in $it…" }
             },
+            sidePanels = sidePanels,
         )
         message?.let { MessageChip(it, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp)) }
     }

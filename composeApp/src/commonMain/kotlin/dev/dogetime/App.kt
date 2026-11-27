@@ -320,6 +320,26 @@ fun App() {
                                             backdropUrl = targetDestination.backdropUrl,
                                             mediaItem = targetDestination.mediaItem,
                                             onBack = { navigator.back() },
+                                            // Another episode from the player's panel replaces this one, so Back
+                                            // still leads to the show. It plays a download of it when there's one,
+                                            // else carries on with the same add-on or season pack.
+                                            onPlayEpisode = { episode, episodeTitle ->
+                                                if (offlineLookup?.isActive != true) {
+                                                    offlineLookup = appUiScope.launch {
+                                                        val copy = container.offlineCopies.findOfflineCopy(
+                                                            episode, episodeTitle, targetDestination.mediaItem?.type,
+                                                        )
+                                                        navigator.replace(
+                                                            copy?.let { Destination.OfflineWatch(it) } ?: targetDestination.copy(
+                                                                target = episode,
+                                                                title = episodeTitle,
+                                                                resumeLastStream = true,
+                                                                fromBeginning = false,
+                                                            ),
+                                                        )
+                                                    }
+                                                }
+                                            },
                                             modifier = destModifier,
                                         )
                                         is Destination.OfflineWatch -> VideoPlayerScreen(

@@ -45,7 +45,9 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import dev.chrisbanes.haze.ExperimentalHazeApi
 import dev.chrisbanes.haze.HazeInput
-import dev.chrisbanes.haze.glass.GlassStyle
+import dev.dogetime.ui.components.GlassPanelShape
+import dev.dogetime.ui.components.windowWideImageUrl
+import dev.dogetime.ui.components.rememberGlassPanelStyle
 import dev.chrisbanes.haze.glass.hazeGlass
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
@@ -214,20 +216,6 @@ private fun DetailsContent(
     }
 }
 
-private val EpisodesPanelShape = RoundedCornerShape(24.dp)
-
-@OptIn(ExperimentalHazeApi::class)
-@Composable
-private fun rememberEpisodesGlass(): GlassStyle {
-    val bg = MaterialTheme.colorScheme.surface
-    return remember(bg) {
-        GlassStyle.regular.then {
-            shape(EpisodesPanelShape)
-            tint(bg.copy(alpha = 0.35f))
-        }
-    }
-}
-
 /**
  * Wide screens: details on the left and episodes on the right, each scrolling on its own.
  * The backdrop spans the full width behind both, moving with the details as they scroll, and
@@ -308,8 +296,8 @@ private fun WideDetails(
                     .fillMaxHeight()
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.End))
                     .padding(16.dp)
-                    .clip(EpisodesPanelShape)
-                    .hazeGlass(input = HazeInput.Sources(hazeState), style = rememberEpisodesGlass()),
+                    .clip(GlassPanelShape)
+                    .hazeGlass(input = HazeInput.Sources(hazeState), style = rememberGlassPanelStyle()),
             ) {
                 episodesSection(details, episodes, episodeProgress, onSeasonSelected, onWatch)
             }
@@ -323,7 +311,7 @@ internal fun Backdrop(url: String, title: String, modifier: Modifier = Modifier)
     val background = MaterialTheme.colorScheme.background
     Box(modifier) {
         AsyncImage(
-            model = url,
+            model = windowWideImageUrl(url),
             contentDescription = title,
             contentScale = ContentScale.Crop,
             modifier = Modifier.matchParentSize(),

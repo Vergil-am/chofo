@@ -278,6 +278,15 @@ internal class MpvAndroidPlayerController(
         }
     }
 
+    override fun selectAudioTrack(track: AudioTrack) {
+        try {
+            mpv.command("set", "aid", track.id.toString())
+            selectedAudioTrack = track
+        } catch (e: Exception) {
+            Log.w(TAG, "Selecting the audio track failed", e)
+        }
+    }
+
     override fun addExternalSubtitle(path: String, title: String, language: String?) {
         try {
             // sub-add <url> [<flags> [<title> [<lang>]]]
@@ -294,26 +303,38 @@ internal class MpvAndroidPlayerController(
     private fun updateTracks() {
         try {
             val count = mpv.getPropertyInt("track-list/count") ?: 0
-            val tracks = mutableListOf<SubtitleTrack>()
-            // "sid" in mpv is a string ("no", "auto", "1", etc.), not format 4 (INT64).
+            val subs = mutableListOf<SubtitleTrack>()
+            val audio = mutableListOf<AudioTrack>()
+            // "sid" and "aid" in mpv are strings ("no", "auto", "1", etc.), not format 4 (INT64).
             var currentSid: Int? = mpv.getPropertyString("sid")?.toIntOrNull()
+            var currentAid: Int? = mpv.getPropertyString("aid")?.toIntOrNull()
             for (i in 0 until count) {
                 val type = mpv.getPropertyString("track-list/$i/type")
+                if (type != "sub" && type != "audio") continue
+                val id = mpv.getPropertyInt("track-list/$i/id") ?: (i + 1)
+                val title = mpv.getPropertyString("track-list/$i/title").orEmpty()
+                val lang = mpv.getPropertyString("track-list/$i/lang")
+                val selected = mpv.getPropertyBoolean("track-list/$i/selected") ?: false
                 if (type == "sub") {
-                    val id = mpv.getPropertyInt("track-list/$i/id") ?: (i + 1)
-                    val title = mpv.getPropertyString("track-list/$i/title").orEmpty()
-                    val lang = mpv.getPropertyString("track-list/$i/lang")
-                    val selected = mpv.getPropertyBoolean("track-list/$i/selected") ?: false
-                    if (selected) {
-                        currentSid = id
-                    }
-                    tracks += SubtitleTrack(id = id, title = title, language = lang)
+                    if (selected) currentSid = id
+                    subs += SubtitleTrack(id = id, title = title, language = lang)
+                } else {
+                    if (selected) currentAid = id
+                    audio += AudioTrack(
+                        id = id,
+                        title = title,
+                        language = lang,
+                        codec = mpv.getPropertyString("track-list/$i/codec"),
+                        channels = mpv.getPropertyInt("track-list/$i/demux-channel-count"),
+                    )
                 }
             }
-            subtitleTracks = tracks
-            selectedSubtitleTrack = tracks.find { it.id == currentSid }
+            subtitleTracks = subs
+            selectedSubtitleTrack = subs.find { it.id == currentSid }
+            audioTracks = audio
+            selectedAudioTrack = audio.find { it.id == currentAid }
         } catch (e: Exception) {
-            Log.w(TAG, "Reading the subtitle tracks failed", e)
+            Log.w(TAG, "Reading the tracks failed", e)
         }
     }
 
