@@ -30,7 +30,6 @@ import java.io.File
 private const val METADATA_TIMEOUT_MS = 90_000L
 private const val STATUS_POLL_MS = 1_000L
 private const val METADATA_POLL_MS = 500L
-private val VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "avi", "mov", "m4v", "ts", "wmv", "flv")
 
 /** One libtorrent session for the whole app, started on the first magnet link. */
 actual object Torrents {
@@ -113,7 +112,7 @@ actual object Torrents {
         }
     }
 
-    /** The file to play: matches season/episode pattern, or [fileName], or [fileIndex], or the largest video file. */
+    /** The file to play in [info]; see [pickVideoFile]. */
     internal fun videoFileIndex(
         info: TorrentInfo,
         fileName: String?,
@@ -122,42 +121,8 @@ actual object Torrents {
         episode: Int? = null,
     ): Int? {
         val files = info.files()
-        val videos = (0 until files.numFiles())
-            .filter { files.fileName(it).substringAfterLast('.').lowercase() in VIDEO_EXTENSIONS }
-        if (videos.isEmpty()) return null
-
-        // 1. If episode number is specified, try exact Season + Episode regex matching
-        if (episode != null) {
-            val match = pickEpisode(videos, season, episode) { idx ->
-                files.fileName(idx).substringAfterLast('/').substringAfterLast('\\')
-            }
-            if (match != null) return match
-        }
-
-        // 2. Match by fileName (matching relative path, basename, or suffix)
-        if (!fileName.isNullOrBlank()) {
-            val clean = fileName.substringAfterLast('/').substringAfterLast('\\')
-            val match = videos.firstOrNull { idx ->
-                val path = files.fileName(idx)
-                val name = path.substringAfterLast('/').substringAfterLast('\\')
-                name.equals(clean, ignoreCase = true) || path.endsWith(clean, ignoreCase = true)
-            }
-            if (match != null) return match
-        }
-
-        // 3. Match by fileIndex directly if it's a valid video index in the torrent
-        if (fileIndex != null && fileIndex in videos) {
-            return fileIndex
-        }
-
-        // 4. If it's an episode and torrent has sorted video files, fallback to episode index (1-based)
-        if (episode != null && episode in 1..videos.size) {
-            val sortedVideos = videos.sortedBy { files.fileName(it) }
-            sortedVideos.getOrNull(episode - 1)?.let { return it }
-        }
-
-        // 5. Fallback for movies: largest video file
-        return videos.maxByOrNull { files.fileSize(it) }
+        val entries = (0 until files.numFiles()).map { TorrentFileEntry(files.fileName(it), files.fileSize(it)) }
+        return pickVideoFile(entries, fileName, fileIndex, season, episode)
     }
 
     private fun remove(handle: TorrentHandle) {

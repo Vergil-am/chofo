@@ -202,7 +202,9 @@ internal class MpvAndroidPlayerController(
                     mpv.setPropertyDouble("panscan", 0.0)
                 }
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Setting the video fit failed", e)
+        }
     }
 
     fun release() {
@@ -221,9 +223,13 @@ internal class MpvAndroidPlayerController(
                 try {
                     Thread.sleep(300)
                     instance.destroy()
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    Log.w(TAG, "Destroying mpv failed", e)
+                }
             }.start()
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Releasing mpv failed", e)
+        }
     }
 
     // ── VideoPlayerController ─────────────────────────────────────────────
@@ -267,7 +273,9 @@ internal class MpvAndroidPlayerController(
                 mpv.command("set", "sub-visibility", "yes")
             }
             selectedSubtitleTrack = track
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Selecting the subtitle track failed", e)
+        }
     }
 
     override fun addExternalSubtitle(path: String, title: String, language: String?) {
@@ -278,7 +286,9 @@ internal class MpvAndroidPlayerController(
             mpv.command(*args.toTypedArray())
             mpv.command("set", "sub-visibility", "yes")
             updateTracks()
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Adding the subtitle file failed", e)
+        }
     }
 
     private fun updateTracks() {
@@ -302,7 +312,9 @@ internal class MpvAndroidPlayerController(
             }
             subtitleTracks = tracks
             selectedSubtitleTrack = tracks.find { it.id == currentSid }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Reading the subtitle tracks failed", e)
+        }
     }
 
     // ── MPV.EventObserver ─────────────────────────────────────────────────

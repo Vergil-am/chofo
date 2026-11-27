@@ -188,7 +188,7 @@ class MediaRepository(
     }
 }
 
-private fun KitsuAnimeResource.toMediaItem(): MediaItem? {
+internal fun KitsuAnimeResource.toMediaItem(): MediaItem? {
     val kitsuId = id.toIntOrNull() ?: return null
     val attrs = attributes
     val title = attrs.canonicalTitle ?: attrs.titles.values.firstOrNull { !it.isNullOrBlank() } ?: return null
@@ -221,7 +221,7 @@ private fun TmdbPage.toPage(transform: (TmdbMedia) -> MediaItem?): Page<MediaIte
         totalPages = totalPages,
     )
 
-private fun TmdbMedia.toMediaItem(type: MediaType): MediaItem = MediaItem(
+internal fun TmdbMedia.toMediaItem(type: MediaType): MediaItem = MediaItem(
     id = id,
     type = type,
     title = title ?: name ?: "Untitled",
@@ -232,7 +232,7 @@ private fun TmdbMedia.toMediaItem(type: MediaType): MediaItem = MediaItem(
     year = (releaseDate ?: firstAirDate).toYear(),
 )
 
-private fun TmdbDetails.toDomain(type: MediaType): MediaDetails {
+internal fun TmdbDetails.toDomain(type: MediaType): MediaDetails {
     val item = MediaItem(
         id = id,
         type = type,
@@ -301,14 +301,14 @@ private fun TmdbPage?.toRelatedItems(type: MediaType): List<MediaItem> =
         result.toMediaItem(resultType)
     }
 
-private fun TmdbSeason.toDomain(): Season = Season(
+internal fun TmdbSeason.toDomain(): Season = Season(
     number = seasonNumber,
     name = name ?: "Season $seasonNumber",
     episodeCount = episodeCount,
     airDate = airDate.toNonBlank(),
 )
 
-private fun TmdbEpisode.toDomain(): Episode = Episode(
+internal fun TmdbEpisode.toDomain(): Episode = Episode(
     number = episodeNumber,
     seasonNumber = seasonNumber,
     name = name ?: "Episode $episodeNumber",

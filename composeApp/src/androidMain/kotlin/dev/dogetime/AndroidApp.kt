@@ -1,7 +1,10 @@
 package dev.dogetime
 
-import android.content.Context
 import `is`.xyz.mpv.Utils
+import android.content.Context
+import android.util.Log
+
+private const val TAG = "DogetimeApp"
 
 /** Holds the application context for shared code that needs it, such as the database. */
 object AndroidApp {
@@ -13,6 +16,8 @@ object AndroidApp {
         this.context = app
         try {
             Utils.copyAssets(app)
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Copying the mpv assets failed", e)
+        }
     }
 }

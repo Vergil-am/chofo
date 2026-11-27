@@ -7,9 +7,12 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import dev.dogetime.AndroidApp
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+
+private const val TAG = "DogetimeDownloads"
 
 internal actual object DownloadNotifier {
     private const val CHANNEL_ID_DOWNLOADS = "chofo_downloads"
@@ -130,7 +133,9 @@ internal actual object DownloadNotifier {
                 } else {
                     context.startService(intent)
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "Starting the download service failed", e)
+            }
         }
     }
 
@@ -141,7 +146,9 @@ internal actual object DownloadNotifier {
                     action = DownloadService.ACTION_STOP
                 }
                 context.startService(intent)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "Stopping the download service failed", e)
+            }
         }
     }
 
@@ -170,7 +177,9 @@ internal actual object DownloadNotifier {
         try {
             val notification = createForegroundNotification(context)
             nm.notify(DownloadService.FOREGROUND_NOTIFICATION_ID, notification)
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Updating the download notification failed", e)
+        }
     }
 
     actual fun notifyCompleted(id: String, title: String) {
@@ -194,14 +203,18 @@ internal actual object DownloadNotifier {
 
             // Post completion notification with unique hash
             nm.notify(id.hashCode(), builder.build())
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Posting the download complete notification failed", e)
+        }
 
         // If there are other downloads still running, update the foreground notification
         if (activeDownloads.isNotEmpty()) {
             try {
                 val notification = createForegroundNotification(context)
                 nm.notify(DownloadService.FOREGROUND_NOTIFICATION_ID, notification)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "Updating the download notification failed", e)
+            }
         }
     }
 
@@ -225,13 +238,17 @@ internal actual object DownloadNotifier {
             }
 
             nm.notify(id.hashCode(), builder.build())
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Posting the download failed notification failed", e)
+        }
 
         if (activeDownloads.isNotEmpty()) {
             try {
                 val notification = createForegroundNotification(context)
                 nm.notify(DownloadService.FOREGROUND_NOTIFICATION_ID, notification)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "Updating the download notification failed", e)
+            }
         }
     }
 
@@ -243,13 +260,17 @@ internal actual object DownloadNotifier {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         try {
             nm.cancel(id.hashCode())
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Cancelling the download notification failed", e)
+        }
 
         if (activeDownloads.isNotEmpty()) {
             try {
                 val notification = createForegroundNotification(context)
                 nm.notify(DownloadService.FOREGROUND_NOTIFICATION_ID, notification)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "Updating the download notification failed", e)
+            }
         }
     }
 

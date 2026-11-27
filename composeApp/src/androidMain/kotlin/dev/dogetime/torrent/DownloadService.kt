@@ -5,6 +5,9 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
+
+private const val TAG = "DogetimeDownloads"
 
 class DownloadService : Service() {
 
@@ -36,7 +39,9 @@ class DownloadService : Service() {
             // Fallback if foreground service type restriction or permission issues occur
             try {
                 startForeground(FOREGROUND_NOTIFICATION_ID, notification)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.w(TAG, "Starting the foreground service failed", e)
+            }
         }
 
         return START_NOT_STICKY
@@ -50,7 +55,9 @@ class DownloadService : Service() {
                 @Suppress("DEPRECATION")
                 stopForeground(true)
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "Stopping the foreground service failed", e)
+        }
         stopSelf()
     }
 
