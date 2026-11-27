@@ -5,6 +5,7 @@ import dev.dogetime.torrent.TorrentStreamServer
 import dev.dogetime.torrent.prepareTorrentLibrary
 import dev.dogetime.torrent.torrentDataDir
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -22,14 +23,19 @@ import org.libtorrent4j.Priority
 import org.libtorrent4j.SessionHandle
 import org.libtorrent4j.SessionManager
 import org.libtorrent4j.SessionParams
+import org.libtorrent4j.Sha1Hash
 import org.libtorrent4j.TorrentFlags
 import org.libtorrent4j.TorrentHandle
 import org.libtorrent4j.TorrentInfo
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 private const val METADATA_TIMEOUT_MS = 90_000L
 private const val STATUS_POLL_MS = 1_000L
 private const val METADATA_POLL_MS = 500L
+private const val REMOVE_TIMEOUT_MS = 10_000L
+private const val REMOVE_POLL_MS = 50L
 
 /** One libtorrent session for the whole app, started on the first magnet link. */
 actual object Torrents {
@@ -40,6 +46,12 @@ actual object Torrents {
 
     /** Stopping and cleaning up blocks, so it runs here rather than on the caller's thread. */
     private val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Removals still running, by info hash; see [remove]. */
+    private val removing = ConcurrentHashMap<Sha1Hash, Job>()
+
+    /** Numbers each open's folder, so a late file deletion of a closed copy can't reach a new one. */
+    private val openCount = AtomicInteger()
 
     internal suspend fun session(): SessionManager = startLock.withLock {
         session ?: withContext(Dispatchers.IO) {
@@ -69,9 +81,12 @@ actual object Torrents {
         } catch (e: IllegalArgumentException) {
             throw IllegalArgumentException("That isn't a valid magnet link.", e)
         }
-        val saveDir = File(torrentDataDir(), hash.toHex()).apply { mkdirs() }
 
         return withContext(Dispatchers.IO) {
+            // Replaying a torrent right after leaving it: the old copy must be gone first, or
+            // libtorrent hands back that copy and its removal then kills this stream.
+            removing[hash]?.join()
+            val saveDir = File(torrentDataDir(), "${hash.toHex()}-${openCount.incrementAndGet()}").apply { mkdirs() }
             session.download(magnet.trim(), saveDir, TorrentFlags.SEQUENTIAL_DOWNLOAD)
             var handle: TorrentHandle? = null
             try {
@@ -103,10 +118,10 @@ actual object Torrents {
                 val file = TorrentFile(added, info, index, saveDir)
                 val server = TorrentStreamServer(file)
                 val url = server.start()
-                OpenTorrent(added, file, server, url)
+                OpenTorrent(added, hash, file, server, url)
             } catch (e: Throwable) {
                 // Also reached when the user leaves before the video starts.
-                (handle ?: session.find(hash))?.let { remove(it) }
+                (handle ?: session.find(hash))?.let { remove(it, hash) }
                 throw e
             }
         }
@@ -125,14 +140,27 @@ actual object Torrents {
         return pickVideoFile(entries, fileName, fileIndex, season, episode)
     }
 
-    private fun remove(handle: TorrentHandle) {
-        background.launch {
-            session?.let { if (handle.isValid) it.remove(handle, SessionHandle.DELETE_FILES) }
+    /**
+     * Runs [before], then removes [handle] and deletes its files, in the background. It is
+     * registered right away, so an [open] of the same [hash] waits until libtorrent has let go of it.
+     */
+    private fun remove(handle: TorrentHandle, hash: Sha1Hash, before: () -> Unit = {}) {
+        val job = background.launch {
+            before()
+            val session = session ?: return@launch
+            if (handle.isValid) session.remove(handle, SessionHandle.DELETE_FILES)
+            // libtorrent removes torrents asynchronously.
+            withTimeoutOrNull(REMOVE_TIMEOUT_MS) {
+                while (session.find(hash) != null) delay(REMOVE_POLL_MS)
+            }
         }
+        removing[hash] = job
+        job.invokeOnCompletion { removing.remove(hash, job) }
     }
 
     private class OpenTorrent(
         private val handle: TorrentHandle,
+        private val hash: Sha1Hash,
         private val file: TorrentFile,
         private val server: TorrentStreamServer,
         url: String,
@@ -161,10 +189,9 @@ actual object Torrents {
 
         override fun close() {
             scope.cancel()
-            background.launch {
+            remove(handle, hash) {
                 server.stop()
                 file.close()
-                remove(handle)
             }
         }
     }
