@@ -87,6 +87,8 @@ fun WatchScreen(
     modifier: Modifier = Modifier,
     backdropUrl: String? = null,
     mediaItem: MediaItem? = null,
+    /** How many MB of a torrent to download before playback starts; 0 starts straight away. */
+    torrentBufferMb: Int = 0,
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -121,6 +123,7 @@ fun WatchScreen(
                 target = target,
                 mediaItem = mediaItem,
                 createPlayerViewModel = createPlayerViewModel,
+                bufferMb = torrentBufferMb,
             )
         }
         WatchStep.Torrents -> Box(modifier = Modifier.fillMaxSize()) {

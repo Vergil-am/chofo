@@ -79,6 +79,7 @@ fun App() {
     }.collectAsState(initial = null)
     val currentTheme = savedTheme ?: return
     val selectTheme = { theme: AppTheme -> container.preferences.setThemeId(theme.id) }
+    val torrentBufferMb by remember { container.preferences.observeTorrentBufferMb() }.collectAsState(initial = 0)
 
     ChofoTheme(
         theme = currentTheme,
@@ -259,6 +260,8 @@ fun App() {
                                         Destination.Settings -> SettingsScreen(
                                             currentTheme = currentTheme,
                                             onThemeSelect = selectTheme,
+                                            torrentBufferMb = torrentBufferMb,
+                                            onTorrentBufferChange = container.preferences::setTorrentBufferMb,
                                             viewModel = settingsViewModel,
                                             accountViewModel = accountViewModel,
                                             streamAddonsViewModel = streamAddonsViewModel,
@@ -304,6 +307,7 @@ fun App() {
                                             },
                                             target = targetDestination.target,
                                             title = targetDestination.title,
+                                            torrentBufferMb = torrentBufferMb,
                                             // "Start from the beginning" applies to the first player only, not
                                             // after a change of source mid-way.
                                             createPlayerViewModel = remember(targetDestination) {

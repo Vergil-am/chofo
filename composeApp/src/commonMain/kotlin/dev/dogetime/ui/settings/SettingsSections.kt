@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -35,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.dogetime.AppConfig
 import dev.dogetime.AppTheme
+import dev.dogetime.data.PreferencesRepository
 
 /** A section title, with an optional line under it. */
 @Composable
@@ -54,6 +58,29 @@ internal fun SectionHeader(title: String, subtitle: String? = null) {
         )
     }
     Spacer(Modifier.height(14.dp))
+}
+
+/** How much of a torrent to download before playback starts. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun PlaybackSection(torrentBufferMb: Int, onTorrentBufferChange: (Int) -> Unit) {
+    SectionHeader(
+        "Playback",
+        "Download part of a torrent before it starts playing, to avoid early stalls on slow torrents",
+    )
+    FlowRow(
+        modifier = Modifier.widthIn(max = 680.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        PreferencesRepository.TORRENT_BUFFER_OPTIONS_MB.forEach { mb ->
+            FilterChip(
+                selected = mb == torrentBufferMb,
+                onClick = { onTorrentBufferChange(mb) },
+                label = { Text(if (mb == 0) "Off" else "$mb MB") },
+            )
+        }
+    }
 }
 
 @Composable

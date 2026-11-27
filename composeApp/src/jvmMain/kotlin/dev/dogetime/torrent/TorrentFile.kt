@@ -47,6 +47,10 @@ internal class TorrentFile(
 
     private fun pieceAt(position: Long) = ((start + position) / pieceLength).toInt()
 
+    /** Bytes downloaded in one run from the start of the file, counted up to [limit]. */
+    fun downloadedFromStart(limit: Long): Long =
+        downloadedFromStart(start, size, pieceLength, limit, handle::havePiece)
+
     /** Asks for the pieces from [position] onward to arrive first, soonest first. */
     private fun prioritize(position: Long) {
         val first = pieceAt(position)
@@ -84,4 +88,28 @@ internal class TorrentFile(
     fun close() {
         runCatching { channel?.close() }
     }
+}
+
+/**
+ * Bytes downloaded in one run from the start of a file of [size] bytes that begins [start] bytes
+ * into its torrent, counted up to [limit]. Pieces of [pieceLength] span file boundaries, so the
+ * first and last pieces can hold parts of other files.
+ */
+internal fun downloadedFromStart(
+    start: Long,
+    size: Long,
+    pieceLength: Long,
+    limit: Long,
+    havePiece: (Int) -> Boolean,
+): Long {
+    if (size <= 0) return 0
+    val lastPiece = ((start + size - 1) / pieceLength).toInt()
+    var piece = (start / pieceLength).toInt()
+    while (piece <= lastPiece && havePiece(piece)) {
+        val pieceEnd = (piece + 1) * pieceLength - start
+        if (pieceEnd >= limit) return minOf(limit, size)
+        piece++
+    }
+    // The first missing piece starts here in the file: 0 when the very first one is missing.
+    return if (piece > lastPiece) size else maxOf(0L, piece * pieceLength - start)
 }

@@ -6,13 +6,16 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -60,6 +63,8 @@ typealias PlayerViewModelFactory = (PlaybackSource) -> PlayerViewModel
  * external player), large center buttons, and a seek bar. On touch screens a tap shows or hides
  * the controls and a double tap on either side seeks; with a mouse a click pauses and a double
  * click toggles fullscreen. [onOpenExternal] adds a button that hands the stream to another app.
+ * [status] is shown under the top bar with the controls, and under the spinner while the video
+ * stalls (for a torrent: its peers, speed and progress).
  */
 @Composable
 fun VideoPlayerScreen(
@@ -68,6 +73,7 @@ fun VideoPlayerScreen(
     onBack: () -> Unit,
     onOpenExternal: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    status: (@Composable () -> Unit)? = null,
 ) {
     // Sources are data classes, so an equal source on recomposition keeps the same ViewModel.
     val viewModel = rememberViewModel(source) { createViewModel(source) }
@@ -100,6 +106,7 @@ fun VideoPlayerScreen(
             onOpenExternal = onOpenExternal,
             onRetry = { attempt++ },
             modifier = modifier,
+            status = status,
         )
     }
 }
@@ -117,6 +124,7 @@ private fun PlayerContent(
     onOpenExternal: (() -> Unit)?,
     onRetry: () -> Unit,
     modifier: Modifier,
+    status: (@Composable () -> Unit)?,
 ) {
     val controller = rememberVideoPlayerController(stream, title)
     val fullscreen = rememberFullscreenController()
@@ -288,7 +296,14 @@ private fun PlayerContent(
         )
 
         if (controller.isBuffering && controller.error == null && !controlsVisible) {
-            CircularProgressIndicator(color = ControlTint, modifier = Modifier.align(Alignment.Center).size(48.dp))
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                CircularProgressIndicator(color = ControlTint, modifier = Modifier.size(48.dp))
+                status?.invoke()
+            }
         }
 
         feedback?.let { FeedbackBubble(it) }
@@ -315,22 +330,28 @@ private fun PlayerContent(
                         .background(Brush.verticalGradient(listOf(Color.Transparent, Scrim))),
                 )
 
-                TopBar(
-                    title = title,
-                    controller = controller,
-                    subtitles = state,
-                    onSearchSubdl = viewModel::searchSubdl,
-                    onSearchOpenSubtitles = viewModel::searchOpenSubtitles,
-                    onSearchYtsSubs = viewModel::searchYtsSubs,
-                    onPickSubtitle = viewModel::pickSubtitle,
-                    onTurnOffSubtitles = ::onTurnOffSubtitles,
-                    onMenuOpenChange = { menuOpen = it; showControls() },
-                    onBack = onBack,
-                    onOpenExternal = onOpenExternal?.let { open -> { controller.pause(); open() } },
+                Column(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
-                )
+                ) {
+                    TopBar(
+                        title = title,
+                        controller = controller,
+                        subtitles = state,
+                        onSearchSubdl = viewModel::searchSubdl,
+                        onSearchOpenSubtitles = viewModel::searchOpenSubtitles,
+                        onSearchYtsSubs = viewModel::searchYtsSubs,
+                        onPickSubtitle = viewModel::pickSubtitle,
+                        onTurnOffSubtitles = ::onTurnOffSubtitles,
+                        onMenuOpenChange = { menuOpen = it; showControls() },
+                        onBack = onBack,
+                        onOpenExternal = onOpenExternal?.let { open -> { controller.pause(); open() } },
+                    )
+                    if (status != null) {
+                        Box(Modifier.padding(start = 16.dp)) { status() }
+                    }
+                }
 
                 val error = controller.error
                 if (error != null) {

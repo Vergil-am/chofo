@@ -169,7 +169,7 @@ actual object Torrents {
         override val stream = CapturedStream(url, emptyMap())
 
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        private val _progress = MutableStateFlow(TorrentProgress(hasMetadata = true))
+        private val _progress = MutableStateFlow(TorrentProgress(hasMetadata = true, size = file.size))
         override val progress: StateFlow<TorrentProgress> = _progress
 
         init {
@@ -181,6 +181,8 @@ actual object Torrents {
                         peers = status.numPeers(),
                         downloadRate = status.downloadRate().toLong(),
                         progress = status.progress(),
+                        size = file.size,
+                        bufferedBytes = file.downloadedFromStart(MAX_COUNTED_BUFFER_BYTES),
                     )
                     delay(STATUS_POLL_MS)
                 }

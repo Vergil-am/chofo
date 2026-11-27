@@ -22,6 +22,8 @@ import dev.dogetime.AppTheme
 fun SettingsScreen(
     currentTheme: AppTheme,
     onThemeSelect: (AppTheme) -> Unit,
+    torrentBufferMb: Int,
+    onTorrentBufferChange: (Int) -> Unit,
     viewModel: SettingsViewModel,
     accountViewModel: dev.dogetime.ui.account.AccountViewModel,
     onSignIn: () -> Unit,
@@ -59,6 +61,8 @@ fun SettingsScreen(
 
         StreamAddonsSection(viewModel = streamAddonsViewModel)
 
+        PlaybackSection(torrentBufferMb, onTorrentBufferChange)
+        Spacer(Modifier.height(36.dp))
         ThemeSection(currentTheme, onThemeSelect)
         Spacer(Modifier.height(36.dp))
         SocialsSection()

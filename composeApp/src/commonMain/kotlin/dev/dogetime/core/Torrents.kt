@@ -2,7 +2,7 @@ package dev.dogetime.core
 
 import kotlinx.coroutines.flow.StateFlow
 
-/** How a torrent is doing, for the loading screen. */
+/** How a torrent is doing, for the loading screen, the buffer before playback, and the player. */
 data class TorrentProgress(
     /** False until peers have sent the torrent's file list. */
     val hasMetadata: Boolean = false,
@@ -11,7 +11,17 @@ data class TorrentProgress(
     val downloadRate: Long = 0,
     /** Share of the video file downloaded, 0 to 1. */
     val progress: Float = 0f,
+    /** The video file's size in bytes, or 0 before it is known. */
+    val size: Long = 0,
+    /**
+     * Bytes downloaded in one run from the start of the video file, which is what playback can
+     * use; counted up to [MAX_COUNTED_BUFFER_BYTES].
+     */
+    val bufferedBytes: Long = 0,
 )
+
+/** The most [TorrentProgress.bufferedBytes] counts up to: more than the largest buffer setting. */
+const val MAX_COUNTED_BUFFER_BYTES = 256L * 1024 * 1024
 
 /** A video file from a torrent, streamed over HTTP from inside the app while it downloads. */
 interface TorrentStream {

@@ -1,7 +1,5 @@
 package dev.dogetime.ui.watch
 
-import dev.dogetime.core.CapturedStream
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,18 +11,20 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import dev.dogetime.core.CapturedStream
 import dev.dogetime.core.ExternalPlayer
 import dev.dogetime.core.TorrentProgress
 import dev.dogetime.core.TorrentStream
@@ -37,6 +37,7 @@ import dev.dogetime.ui.player.PlayerViewModelFactory
 import dev.dogetime.ui.player.VideoPlayerScreen
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 private const val MESSAGE_DURATION_MS = 4_000L
 
@@ -59,6 +60,7 @@ data class TorrentPick(
 /**
  * Plays [pick]: the torrent's video file is downloaded in order while it plays, and streamed to
  * the app's player from a local server. Leaving the screen stops the download and deletes it.
+ * With a [bufferMb] above 0, that much of the file is downloaded before the player opens.
  */
 @Composable
 internal fun MagnetPlayer(
@@ -71,6 +73,7 @@ internal fun MagnetPlayer(
     target: WatchTarget? = null,
     mediaItem: MediaItem? = null,
     createPlayerViewModel: PlayerViewModelFactory,
+    bufferMb: Int = 0,
 ) {
     // A direct link needs no torrent: play it straight away.
     val direct = pick.directUrl
@@ -126,6 +129,24 @@ internal fun MagnetPlayer(
     }
 
     if (opened != null) {
+        val live by opened.progress.collectAsState()
+        // Read once per opened torrent: changing the setting mid-way doesn't pause playback.
+        var buffered by remember(opened) { mutableStateOf(bufferMb <= 0) }
+        LaunchedEffect(opened) {
+            if (!buffered) {
+                opened.progress.first { it.size > 0 && it.bufferedBytes >= bufferTarget(bufferMb, it) }
+                buffered = true
+            }
+        }
+        if (!buffered) {
+            Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                if (backdropUrl != null) BlurredBackdrop(backdropUrl, Modifier.fillMaxSize())
+                WatchPage(title = title, pageShown = false, onBack = onBack, onChangeSource = onChangeSource) {
+                    TorrentBuffering(live, bufferMb, onPlayNow = { buffered = true })
+                }
+            }
+            return
+        }
         Box(modifier.fillMaxSize()) {
             VideoPlayerScreen(
                 source = PlaybackSource.Stream(opened.stream, title, target, mediaItem, pick.remembered),
@@ -134,6 +155,7 @@ internal fun MagnetPlayer(
                 onOpenExternal = ExternalPlayer.name?.let {
                     { message = ExternalPlayer.play(opened.stream, title) ?: "Opening in $it…" }
                 },
+                status = { TorrentStatsChip(live) },
             )
             message?.let { MessageChip(it, Modifier.align(Alignment.BottomCenter).padding(bottom = 96.dp)) }
         }

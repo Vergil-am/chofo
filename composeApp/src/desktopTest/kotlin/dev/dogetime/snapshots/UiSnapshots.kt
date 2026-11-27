@@ -218,7 +218,7 @@ class UiSnapshots {
         val addonSettings = StreamAddonsViewModel(addons)
         for (size in listOf(Size("phone-full", 412, 1900, 1.5f), desktop)) {
             shoot("settings", size, seconds = 4) {
-                SettingsScreen(AppTheme.Midnight, {}, settings, account, onSignIn = {}, streamAddonsViewModel = addonSettings)
+                SettingsScreen(AppTheme.Midnight, {}, torrentBufferMb = 25, onTorrentBufferChange = {}, viewModel = settings, accountViewModel = account, onSignIn = {}, streamAddonsViewModel = addonSettings)
             }
         }
         shoot("home", tallPhone) { HomeScreen(home, onOpen = {}, isWide = false, bottomInset = 96.dp) }
